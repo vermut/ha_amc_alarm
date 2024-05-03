@@ -1,0 +1,30 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Device is already configured"
+        },
+        "error": {
+            "cannot_connect": "Failed to connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "central_id": "AMC Central ID",
+                    "central_password": "AMC Central Password",
+                    "central_username": "AMC Central Login",
+                    "email": "Email",
+                    "password": "Password"
+                },
+                "data_description": {
+                    "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
+                    "central_password": "AMC Central Password",
+                    "central_username": "AMC Central Login",
+                    "email": "Email from webapp",
+                    "password": "Password from webapp"
+                }
+            }
+        }
+    }
+}
