@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "email": "[%key:common::config_flow::data::email%]",
+          "password": "[%key:common::config_flow::data::password%]",
+          "central_id": "AMC Central ID",
+          "central_username": "AMC Central Login",
+          "central_password": "AMC Central Password"
+        },
+        "data_description": {
+          "email": "Email from webapp",
+          "password": "Password from webapp",
+          "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
+          "central_username": "AMC Central Login",
+          "central_password": "AMC Central Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+    }
+  }
+}

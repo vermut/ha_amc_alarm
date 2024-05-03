@@ -1,0 +1,10 @@
+{
+  "domain": "amc_alarm",
+  "name": "AMC Alarm",
+  "codeowners": ["@vermut"],
+  "config_flow": true,
+  "documentation": "https://github.com/vermut/ha_amc_alarm",
+  "issue_tracker": "https://github.com/vermut/ha_amc_alarm/issues",
+  "iot_class": "cloud_push",
+  "version": "0.0.1"
+}
