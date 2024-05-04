@@ -1,7 +1,4 @@
 {
   "name": "AMC Alarm",
-  "domains": ["alarm_control_panel", "sensor", "binary_sensor"],
-  "homeassistant": "2021.4.0",
-  "iot_class": ["Cloud Push"],
   "render_readme": true
 }
