@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Union, Optional, List, Dict, Literal, TypeAlias
 
@@ -96,10 +97,36 @@ class AmcCommandResponse(BaseModel):
     token: Optional[str] = None
 
 
-AmcStatesType: TypeAlias = Dict[
-    str,
-    Dict[
-        Literal["ZONES", "AREAS", "GROUPS", "NOTIFICATIONS"],
-        List[AmcEntry | AmcNotification],
-    ],
-]
+class CentralDataSections:
+    GROUPS = 0
+    AREAS = 1
+    ZONES = 2
+    OUTPUTS = 3
+    SYSTEM_STATUS = 4
+    NOTIFICATIONS = 5
+
+    __all__ = [GROUPS, AREAS, OUTPUTS, SYSTEM_STATUS, NOTIFICATIONS]
+
+
+class SystemStatusDataSections:
+    GSM_SIGNAL = 0 # _(index=, entity_prefix="GSM Signal")
+    BATTERY_STATUS = 1 # _(index=, entity_prefix="Battery Status")
+    POWER = 2 # _(index=, entity_prefix="Power")
+    PHONE_LINE = 3 # _(index=, entity_prefix="Phone Line")
+    PANEL_MANIPULATION = 4 # _(index=, entity_prefix="Panel Manipulation")
+    LINE_MANIPULATION = 5 # _(index=, entity_prefix="Line Manipulation")
+    PERIPHERALS = 6 # _(index=, entity_prefix="Peripherals")
+    CONNECTIONS = 7 # _(index=, entity_prefix="Connections")
+    WIRELESS = 8 # _(index=, entity_prefix="Wireless")
+
+    __all__ = [
+        GSM_SIGNAL,
+        BATTERY_STATUS,
+        POWER,
+        PHONE_LINE,
+        PANEL_MANIPULATION,
+        LINE_MANIPULATION,
+        PERIPHERALS,
+        CONNECTIONS,
+        WIRELESS,
+    ]

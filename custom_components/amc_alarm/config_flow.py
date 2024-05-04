@@ -56,7 +56,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             await api.connect()
             for _ in range(10):
-                if api.states:
+                if api.raw_states():
                     break
                 await asyncio.sleep(1)
         except ConnectionFailed:
@@ -69,7 +69,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
-            if user_input["central_id"] not in api.states:
+            if user_input["central_id"] not in api.raw_states():
                 errors["base"] = "User login is fine but can't find AMC Central"
             else:
                 return self.async_create_entry(

@@ -9,7 +9,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from .amc_alarm_api import SimplifiedAmcApi
-from .amc_alarm_api.amc_proto import AmcNotification, AmcEntry, AmcStatesType
 from .amc_alarm_api.exceptions import AuthenticationFailed, AmcException
 from .const import DOMAIN, PLATFORMS
 
@@ -39,16 +38,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except AmcException as ex:
         raise ConfigEntryNotReady("Unable to connect to AMC") from ex
 
-    async def async_wait_for_states() -> AmcStatesType:
+    async def async_wait_for_states():
+        await api.query_states()
         for _ in range(30):
-            if api.states:
+            if api.raw_states():
                 break
             await asyncio.sleep(1)
 
-        if not api.states:
+        if not api.raw_states():
             raise UpdateFailed()
 
-        return api.states
+        return api.raw_states()
 
     coordinator = DataUpdateCoordinator(
         hass,

@@ -9,42 +9,35 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
-from . import AmcStatesType
+
+from .amc_alarm_api.api import AmcStatesParser
 from .const import DOMAIN
 from .entity import AmcBaseEntity
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_devices: AddEntitiesCallback,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        async_add_devices: AddEntitiesCallback,
 ) -> None:
     """Set up the binary sensor platform."""
-    coordinator: DataUpdateCoordinator[AmcStatesType] = hass.data[DOMAIN][
-        entry.entry_id
-    ]
-    binary_sensors: list[AmcEntryBinarySensor] = []
+    coordinator: DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    states = AmcStatesParser(coordinator.data)
+    binary_sensors: list[AmcZone] = []
 
-    data = coordinator.data
-    data: AmcStatesType
-
-    for central_id, central in data.items():
-        for zone in central["ZONES"]:
-            binary_sensors.append(
-                AmcEntryBinarySensor(
-                    coordinator=coordinator,
-                    name=zone.name,
-                    entry_id=entry.entry_id,
-                    central_id=central_id,
-                    amc_id=zone.Id,
-                    amc_type="ZONES",
-                )
-            )
+    for central_id in states.raw_states():
+        binary_sensors.extend(
+            AmcZone(
+                coordinator=coordinator,
+                amc_entry=x,
+                attributes_fn=lambda raw_state: AmcStatesParser(raw_state).zone(central_id, x.Id)
+            ) for x in states.zones(central_id).list
+        )
 
     async_add_devices(binary_sensors, True)
 
 
-class AmcEntryBinarySensor(AmcBaseEntity, BinarySensorEntity):
+class AmcZone(AmcBaseEntity, BinarySensorEntity):
     @property
     def is_on(self) -> Optional[bool]:
         """Return the state of the sensor."""

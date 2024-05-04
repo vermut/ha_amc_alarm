@@ -1,20 +1,19 @@
 import asyncio
 import logging
 from enum import Enum
-from typing import Callable
 
 import aiohttp
 from aiohttp import WSMessage
 
-from .exceptions import AmcException, ConnectionFailed, AuthenticationFailed
 from .amc_proto import (
     AmcCommands,
     AmcCommand,
     AmcCommandResponse,
     AmcLogin,
     AmcCentral,
-    AmcStatesType,
+    AmcCentralResponse, CentralDataSections, AmcData, AmcEntry,
 )
+from .exceptions import AmcException, ConnectionFailed, AuthenticationFailed
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,15 +30,15 @@ class SimplifiedAmcApi:
     MAX_FAILED_ATTEMPTS = 60
 
     def __init__(
-        self,
-        login_email,
-        password,
-        central_id,
-        central_username,
-        central_password,
-        async_state_updated_callback=None,
+            self,
+            login_email,
+            password,
+            central_id,
+            central_username,
+            central_password,
+            async_state_updated_callback=None,
     ):
-        self.states: AmcStatesType = {}
+        self._raw_states: dict[str, AmcCentralResponse] = {}
 
         self._ws_url = "wss://service.amc-cloud.com/ws/client"
         self._login_email = login_email
@@ -70,7 +69,7 @@ class SimplifiedAmcApi:
                 continue
 
             if self._listen_task.done() and issubclass(
-                self._listen_task.exception().__class__, AmcException
+                    self._listen_task.exception().__class__, AmcException
             ):
                 raise self._listen_task.exception()  # Something known happened in the listener
 
@@ -80,7 +79,7 @@ class SimplifiedAmcApi:
         if self._ws_state != ConnectionState.AUTHENTICATED:
             raise ConnectionFailed()
 
-        await self._query_states()
+        await self.query_states()
 
     async def _listen(self) -> None:
         """Listen to messages"""
@@ -96,7 +95,7 @@ class SimplifiedAmcApi:
             try:
                 _LOGGER.debug("Logging into %s" % self._ws_url)
                 async with session.ws_connect(
-                    self._ws_url, heartbeat=15, autoping=True
+                        self._ws_url, heartbeat=15, autoping=True
                 ) as ws_client:
                     self._ws_state = ConnectionState.CONNECTED
                     self._websocket = ws_client
@@ -133,40 +132,12 @@ class SimplifiedAmcApi:
 
                                 case AmcCommands.GET_STATES:
                                     if data.status == AmcCommands.STATUS_OK:
-                                        for (
-                                            central_id,
-                                            central,
-                                        ) in data.centrals.items():
-                                            self.states[central_id] = {}
-                                            self.states[central_id]["ZONES"] = [
-                                                item
-                                                for x in central.data
-                                                if x.name == "ZONES"
-                                                for item in x.list
-                                            ]
-                                            self.states[central_id]["GROUPS"] = [
-                                                item
-                                                for x in central.data
-                                                if x.name == "GROUPS"
-                                                for item in x.list
-                                            ]
-                                            self.states[central_id]["AREAS"] = [
-                                                item
-                                                for x in central.data
-                                                if x.name == "AREAS"
-                                                for item in x.list
-                                            ]
-                                            self.states[central_id]["NOTIFICATIONS"] = [
-                                                item
-                                                for x in central.data
-                                                if x.name == "Notifications"
-                                                for item in x.list
-                                            ]
-                                        if self._callback:
-                                            await self._callback()
+                                        self._raw_states = data.centrals
+                                    if self._callback:
+                                        await self._callback()
                                     else:
                                         _LOGGER.debug(
-                                            "Error getting states: %s" % data.centrals
+                                            "Error getting _raw_states: %s" % data.centrals
                                         )
                                         raise AmcException(data.centrals)
 
@@ -219,7 +190,7 @@ class SimplifiedAmcApi:
             msg.token = self._sessionToken
         await self._websocket.send_str(msg.json(exclude_none=True, exclude_unset=True))
 
-    async def _query_states(self):
+    async def query_states(self):
         await self._send_message(
             AmcCommand(
                 command="getStates",
@@ -232,3 +203,49 @@ class SimplifiedAmcApi:
                 ],
             )
         )
+
+    def raw_states(self) -> dict[str, AmcCentralResponse]:
+        return self._raw_states
+
+
+class AmcStatesParser:
+    def __init__(self, states: dict[str, AmcCentralResponse]):
+        self._raw_states = states
+
+    def raw_states(self) -> dict[str, AmcCentralResponse]:
+        return self._raw_states
+
+    def _get_section(self, central_id, section_index) -> AmcData:
+        central = self._raw_states[central_id]
+        zones = next(x for x in central.data if x.index == section_index)
+        return zones
+
+    def groups(self, central_id: str) -> AmcData:
+        return self._get_section(central_id, CentralDataSections.GROUPS)
+
+    def group(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.groups(central_id).list if x.Id == entry_id)
+
+    def areas(self, central_id: str) -> AmcData:
+        return self._get_section(central_id, CentralDataSections.AREAS)
+
+    def area(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.areas(central_id).list if x.Id == entry_id)
+
+    def zones(self, central_id: str) -> AmcData:
+        return self._get_section(central_id, CentralDataSections.ZONES)
+
+    def zone(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.zones(central_id).list if x.Id == entry_id)
+
+    def outputs(self, central_id: str) -> AmcData:
+        return self._get_section(central_id, CentralDataSections.OUTPUTS)
+
+    def output(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.outputs(central_id).list if x.Id == entry_id)
+
+    def system_statuses(self, central_id: str) -> AmcData:
+        return self._get_section(central_id, CentralDataSections.SYSTEM_STATUS)
+
+    def system_status(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.system_statuses(central_id).list if x.Id == entry_id)
