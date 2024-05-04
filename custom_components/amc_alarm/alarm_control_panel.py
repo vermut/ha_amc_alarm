@@ -27,19 +27,25 @@ async def async_setup_entry(
     states = AmcStatesParser(coordinator.data)
     alarms: list[AmcAreaGroup] = []
 
+    def _group(_central_id, _amc_id):
+        return lambda raw_state: AmcStatesParser(raw_state).group(_central_id, _amc_id)
+
+    def _area(_central_id, _amc_id):
+        return lambda raw_state: AmcStatesParser(raw_state).area(_central_id, _amc_id)
+
     for central_id in states.raw_states():
         alarms.extend(
             AmcAreaGroup(
                 coordinator=coordinator,
                 amc_entry=x,
-                attributes_fn=lambda raw_state: AmcStatesParser(raw_state).group(central_id, x.Id)
+                attributes_fn=_group(central_id, x.Id)
             ) for x in states.groups(central_id).list
         )
         alarms.extend(
             AmcAreaGroup(
                 coordinator=coordinator,
                 amc_entry=x,
-                attributes_fn=lambda raw_state: AmcStatesParser(raw_state).area(central_id, x.Id)
+                attributes_fn=_area(central_id, x.Id)
             ) for x in states.areas(central_id).list
         )
 

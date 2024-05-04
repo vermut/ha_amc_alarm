@@ -25,12 +25,15 @@ async def async_setup_entry(
     states = AmcStatesParser(coordinator.data)
     binary_sensors: list[AmcZone] = []
 
+    def _zone(_central_id, _amc_id):
+        return lambda raw_state: AmcStatesParser(raw_state).zone(_central_id, _amc_id)
+
     for central_id in states.raw_states():
         binary_sensors.extend(
             AmcZone(
                 coordinator=coordinator,
                 amc_entry=x,
-                attributes_fn=lambda raw_state: AmcStatesParser(raw_state).zone(central_id, x.Id)
+                attributes_fn=_zone(central_id, x.Id)
             ) for x in states.zones(central_id).list
         )
 
