@@ -119,31 +119,7 @@ class SimplifiedAmcApi:
 
                         if message.type == aiohttp.WSMsgType.TEXT:
                             _LOGGER.debug("Websocket received data: %s", message.data)
-                            data = AmcCommandResponse.parse_raw(message.data)
-
-                            match data.command:
-                                case AmcCommands.LOGIN_USER:
-                                    if data.status == AmcCommands.STATUS_LOGGED_IN:
-                                        _LOGGER.debug("Authorized")
-                                        self._ws_state = ConnectionState.AUTHENTICATED
-                                        self._sessionToken = data.user.token
-                                    else:
-                                        _LOGGER.debug(
-                                            "Authorization failure: %s" % data.status
-                                        )
-                                        raise AuthenticationFailed(data.status)
-
-                                case AmcCommands.GET_STATES:
-                                    if data.status == AmcCommands.STATUS_OK:
-                                        self._raw_states = data.centrals
-                                    if self._callback:
-                                        await self._callback()
-                                    else:
-                                        _LOGGER.debug(
-                                            "Error getting _raw_states: %s"
-                                            % data.centrals
-                                        )
-                                        raise AmcException(data.centrals)
+                            await self._process_message(message)
 
             except aiohttp.ClientResponseError as error:
                 _LOGGER.error("Unexpected response received from server : %s", error)
@@ -172,13 +148,43 @@ class SimplifiedAmcApi:
                     _LOGGER.exception("Unexpected exception occurred: %s", error)
                     self._ws_state = ConnectionState.STOPPED
 
-    async def _login(self):
-        _LOGGER.info("Logging in with email: %s", self._login_email)
-        login_message = AmcCommand(
-            command=AmcCommands.LOGIN_USER,
-            data=AmcLogin(email=self._login_email, password=self._password),
-        )
-        await self._send_message(login_message)
+    async def _process_message(self, message):
+        try:
+            data = AmcCommandResponse.parse_raw(message.data)
+        except ValueError:
+            _LOGGER.warning("Can't process data from server: %s" % data)
+            return
+
+        match data.command:
+            case AmcCommands.LOGIN_USER:
+                if data.status == AmcCommands.STATUS_LOGGED_IN:
+                    _LOGGER.debug("Authorized")
+                    self._ws_state = ConnectionState.AUTHENTICATED
+                    self._sessionToken = data.user.token
+                    self._failed_attempts = 0
+                else:
+                    _LOGGER.debug("Authorization failure: %s" % data.status)
+                    raise AuthenticationFailed(data.status)
+
+            case AmcCommands.GET_STATES:
+                if data.status == AmcCommands.STATUS_OK:
+                    self._raw_states = data.centrals
+                if self._callback:
+                    await self._callback()
+                else:
+                    _LOGGER.debug("Error getting _raw_states: %s" % data.centrals)
+                    raise AmcException(data.centrals)
+            case _:
+                _LOGGER.warning("Unknown command received from server : %s", data)
+
+
+async def _login(self):
+    _LOGGER.info("Logging in with email: %s", self._login_email)
+    login_message = AmcCommand(
+        command=AmcCommands.LOGIN_USER,
+        data=AmcLogin(email=self._login_email, password=self._password),
+    )
+    await self._send_message(login_message)
 
     async def disconnect(self):
         _LOGGER.debug("Disconnecting")

@@ -98,7 +98,7 @@ class AmcCommand(BaseModel):
 
 class AmcCommandResponse(BaseModel):
     command: str
-    status: str
+    status: Optional[str] = None
     centrals: Optional[dict[str, AmcCentralResponse]] = None
     user: Optional[AmcUser] = None
     token: Optional[str] = None
