@@ -17,7 +17,7 @@ class AmcBaseEntity(CoordinatorEntity):
         self,
         coordinator: DataUpdateCoordinator,
         amc_entry: AmcEntry,
-        attributes_fn: Callable[[dict[str, AmcCentralResponse]], AmcEntry]
+        attributes_fn: Callable[[dict[str, AmcCentralResponse]], AmcEntry],
     ) -> None:
         super().__init__(coordinator)
 

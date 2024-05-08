@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import Union, Optional, List, Dict, Literal, TypeAlias
+from typing import Union, Optional, List
 
 from pydantic import BaseModel
 
@@ -84,9 +83,17 @@ class AmcLogin(BaseModel):
 
 class AmcCommand(BaseModel):
     command: str
-    centrals: Optional[List[AmcCentral]] = None
     data: Optional[AmcLogin] = None
     token: Optional[str] = None
+
+    centrals: Optional[List[AmcCentral]] = None
+    centralID: Optional[str] = None
+    centralUsername: Optional[str] = None
+    centralPassword: Optional[str] = None
+
+    group: Optional[int] = None
+    index: Optional[int] = None
+    state: Optional[bool] = None
 
 
 class AmcCommandResponse(BaseModel):
@@ -109,15 +116,15 @@ class CentralDataSections:
 
 
 class SystemStatusDataSections:
-    GSM_SIGNAL = 0 # _(index=, entity_prefix="GSM Signal")
-    BATTERY_STATUS = 1 # _(index=, entity_prefix="Battery Status")
-    POWER = 2 # _(index=, entity_prefix="Power")
-    PHONE_LINE = 3 # _(index=, entity_prefix="Phone Line")
-    PANEL_MANIPULATION = 4 # _(index=, entity_prefix="Panel Manipulation")
-    LINE_MANIPULATION = 5 # _(index=, entity_prefix="Line Manipulation")
-    PERIPHERALS = 6 # _(index=, entity_prefix="Peripherals")
-    CONNECTIONS = 7 # _(index=, entity_prefix="Connections")
-    WIRELESS = 8 # _(index=, entity_prefix="Wireless")
+    GSM_SIGNAL = 0  # _(index=, entity_prefix="GSM Signal")
+    BATTERY_STATUS = 1  # _(index=, entity_prefix="Battery Status")
+    POWER = 2  # _(index=, entity_prefix="Power")
+    PHONE_LINE = 3  # _(index=, entity_prefix="Phone Line")
+    PANEL_MANIPULATION = 4  # _(index=, entity_prefix="Panel Manipulation")
+    LINE_MANIPULATION = 5  # _(index=, entity_prefix="Line Manipulation")
+    PERIPHERALS = 6  # _(index=, entity_prefix="Peripherals")
+    CONNECTIONS = 7  # _(index=, entity_prefix="Connections")
+    WIRELESS = 8  # _(index=, entity_prefix="Wireless")
 
     __all__ = [
         GSM_SIGNAL,

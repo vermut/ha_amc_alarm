@@ -39,7 +39,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady("Unable to connect to AMC") from ex
 
     async def async_wait_for_states():
-        await api.query_states()
+        await api.command_get_states()
         for _ in range(30):
             if api.raw_states():
                 break

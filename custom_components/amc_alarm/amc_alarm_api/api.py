@@ -11,7 +11,10 @@ from .amc_proto import (
     AmcCommandResponse,
     AmcLogin,
     AmcCentral,
-    AmcCentralResponse, CentralDataSections, AmcData, AmcEntry,
+    AmcCentralResponse,
+    CentralDataSections,
+    AmcData,
+    AmcEntry,
 )
 from .exceptions import AmcException, ConnectionFailed, AuthenticationFailed
 
@@ -30,13 +33,13 @@ class SimplifiedAmcApi:
     MAX_FAILED_ATTEMPTS = 60
 
     def __init__(
-            self,
-            login_email,
-            password,
-            central_id,
-            central_username,
-            central_password,
-            async_state_updated_callback=None,
+        self,
+        login_email,
+        password,
+        central_id,
+        central_username,
+        central_password,
+        async_state_updated_callback=None,
     ):
         self._raw_states: dict[str, AmcCentralResponse] = {}
 
@@ -69,7 +72,7 @@ class SimplifiedAmcApi:
                 continue
 
             if self._listen_task.done() and issubclass(
-                    self._listen_task.exception().__class__, AmcException
+                self._listen_task.exception().__class__, AmcException
             ):
                 raise self._listen_task.exception()  # Something known happened in the listener
 
@@ -79,7 +82,7 @@ class SimplifiedAmcApi:
         if self._ws_state != ConnectionState.AUTHENTICATED:
             raise ConnectionFailed()
 
-        await self.query_states()
+        await self.command_get_states()
 
     async def _listen(self) -> None:
         """Listen to messages"""
@@ -95,7 +98,7 @@ class SimplifiedAmcApi:
             try:
                 _LOGGER.debug("Logging into %s" % self._ws_url)
                 async with session.ws_connect(
-                        self._ws_url, heartbeat=15, autoping=True
+                    self._ws_url, heartbeat=15, autoping=True
                 ) as ws_client:
                     self._ws_state = ConnectionState.CONNECTED
                     self._websocket = ws_client
@@ -137,7 +140,8 @@ class SimplifiedAmcApi:
                                         await self._callback()
                                     else:
                                         _LOGGER.debug(
-                                            "Error getting _raw_states: %s" % data.centrals
+                                            "Error getting _raw_states: %s"
+                                            % data.centrals
                                         )
                                         raise AmcException(data.centrals)
 
@@ -188,9 +192,11 @@ class SimplifiedAmcApi:
     async def _send_message(self, msg: AmcCommand):
         if self._sessionToken:
             msg.token = self._sessionToken
-        await self._websocket.send_str(msg.json(exclude_none=True, exclude_unset=True))
+        payload = msg.json(exclude_none=True, exclude_unset=True)
+        _LOGGER.debug("Websocket sending data: %s", payload)
+        await self._websocket.send_str(payload)
 
-    async def query_states(self):
+    async def command_get_states(self):
         await self._send_message(
             AmcCommand(
                 command="getStates",
@@ -201,6 +207,19 @@ class SimplifiedAmcApi:
                         centralPassword=self._central_password,
                     )
                 ],
+            )
+        )
+
+    async def command_set_states(self, group: int, index: int, state: bool):
+        await self._send_message(
+            AmcCommand(
+                command="setStates",
+                centralID=self._central_id,
+                centralUsername=self._central_username,
+                centralPassword=self._central_password,
+                group=group,
+                index=index,
+                state=state,
             )
         )
 
@@ -248,4 +267,6 @@ class AmcStatesParser:
         return self._get_section(central_id, CentralDataSections.SYSTEM_STATUS)
 
     def system_status(self, central_id: str, entry_id: int) -> AmcEntry:
-        return next(x for x in self.system_statuses(central_id).list if x.Id == entry_id)
+        return next(
+            x for x in self.system_statuses(central_id).list if x.Id == entry_id
+        )
