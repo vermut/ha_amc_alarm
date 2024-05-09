@@ -30,16 +30,16 @@ class ConnectionState(Enum):
 
 
 class SimplifiedAmcApi:
-    MAX_FAILED_ATTEMPTS = 60
+    MAX_RETRY_DELAY = 600  # 10 min
 
     def __init__(
-        self,
-        login_email,
-        password,
-        central_id,
-        central_username,
-        central_password,
-        async_state_updated_callback=None,
+            self,
+            login_email,
+            password,
+            central_id,
+            central_username,
+            central_password,
+            async_state_updated_callback=None,
     ):
         self._raw_states: dict[str, AmcCentralResponse] = {}
 
@@ -72,7 +72,7 @@ class SimplifiedAmcApi:
                 continue
 
             if self._listen_task.done() and issubclass(
-                self._listen_task.exception().__class__, AmcException
+                    self._listen_task.exception().__class__, AmcException
             ):
                 raise self._listen_task.exception()  # Something known happened in the listener
 
@@ -98,7 +98,7 @@ class SimplifiedAmcApi:
             try:
                 _LOGGER.debug("Logging into %s" % self._ws_url)
                 async with session.ws_connect(
-                    self._ws_url, heartbeat=15, autoping=True
+                        self._ws_url, heartbeat=15, autoping=True
                 ) as ws_client:
                     self._ws_state = ConnectionState.CONNECTED
                     self._websocket = ws_client
@@ -125,21 +125,15 @@ class SimplifiedAmcApi:
                 _LOGGER.error("Unexpected response received from server : %s", error)
                 self._ws_state = ConnectionState.STOPPED
             except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
-                if self._failed_attempts >= self.MAX_FAILED_ATTEMPTS:
-                    _LOGGER.error(
-                        "Too many retries to reconnect to server. Please restart globally."
-                    )
-                    self._ws_state = ConnectionState.STOPPED
-                elif self._ws_state != ConnectionState.STOPPED:
-                    retry_delay = min(2 ** (self._failed_attempts - 1) * 30, 300)
-                    self._failed_attempts += 1
-                    _LOGGER.error(
-                        "Websocket connection failed, retrying in %ds: %s",
-                        retry_delay,
-                        error,
-                    )
-                    self._ws_state = ConnectionState.DISCONNECTED
-                    await asyncio.sleep(retry_delay)
+                retry_delay = min(2 ** self._failed_attempts * 30, self.MAX_RETRY_DELAY)
+                self._failed_attempts += 1
+                _LOGGER.error(
+                    "Websocket connection failed, retrying in %ds: %s",
+                    retry_delay,
+                    error,
+                )
+                self._ws_state = ConnectionState.DISCONNECTED
+                await asyncio.sleep(retry_delay)
             except AmcException:
                 self._ws_state = ConnectionState.STOPPED
                 raise
@@ -152,7 +146,7 @@ class SimplifiedAmcApi:
         try:
             data = AmcCommandResponse.parse_raw(message.data)
         except ValueError:
-            _LOGGER.warning("Can't process data from server: %s" % data)
+            _LOGGER.warning("Can't process data from server: %s" % message.data)
             return
 
         match data.command:
@@ -177,14 +171,13 @@ class SimplifiedAmcApi:
             case _:
                 _LOGGER.warning("Unknown command received from server : %s", data)
 
-
-async def _login(self):
-    _LOGGER.info("Logging in with email: %s", self._login_email)
-    login_message = AmcCommand(
-        command=AmcCommands.LOGIN_USER,
-        data=AmcLogin(email=self._login_email, password=self._password),
-    )
-    await self._send_message(login_message)
+    async def _login(self):
+        _LOGGER.info("Logging in with email: %s", self._login_email)
+        login_message = AmcCommand(
+            command=AmcCommands.LOGIN_USER,
+            data=AmcLogin(email=self._login_email, password=self._password),
+        )
+        await self._send_message(login_message)
 
     async def disconnect(self):
         _LOGGER.debug("Disconnecting")
