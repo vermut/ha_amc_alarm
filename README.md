@@ -7,11 +7,19 @@ AMC Alarm integration for HomeAssistant
 Usage
 ===
 
-* Install it to HASS (only manually at the moment.)
+* Install it via HACS by adding custom repository
 * Add new integration "AMC Alarm"
 * Fill in your login and central credentials
-* You should see zones as binary sensors and groups/zones as alarm panels.
+* Zones, groups and areas are alarm panels.
+* Notification list is in attributes of a sensor.
+* Tamper system alerts are binary sensors.
+* Outputs are present but untested.
       
+Compatibility
+===
+
+Tested on K8/1.77, X824/3.73. Presumable would be compatibly with anything that uses AMC Plus app. If it works for you - drop me a note.
+
 
 ## Thanks
 The API code is mostly derived from [DIA Chacon API](https://github.com/cnico/dio-chacon-wifi-api). Hass integration and supporting GitHub/HACS manifests are stolen from [HA Toyota](https://github.com/DurgNomis-drol/ha_toyota). Thank you, guys! 
