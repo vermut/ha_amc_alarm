@@ -3,11 +3,23 @@ from __future__ import annotations
 from typing import Optional, Any, Callable
 
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
 from .amc_alarm_api.amc_proto import AmcCentralResponse, AmcEntry
+from .amc_alarm_api.api import AmcStatesParser
+from .const import DOMAIN
+
+
+def device_info(states: AmcStatesParser, central_id: str) -> DeviceInfo:
+    return DeviceInfo(
+        identifiers={(DOMAIN, central_id)},
+        manufacturer="AMC Elettronica",
+        model=states.model(central_id),
+        name=states.real_name(central_id),
+    )
 
 
 class AmcBaseEntity(CoordinatorEntity):
@@ -16,6 +28,7 @@ class AmcBaseEntity(CoordinatorEntity):
     def __init__(
         self,
         coordinator: DataUpdateCoordinator,
+        device_info: DeviceInfo,
         amc_entry: AmcEntry,
         attributes_fn: Callable[[dict[str, AmcCentralResponse]], AmcEntry],
     ) -> None:
@@ -26,6 +39,7 @@ class AmcBaseEntity(CoordinatorEntity):
 
         self._attr_name = amc_entry.name
         self._attr_unique_id = str(amc_entry.Id)
+        self._attr_device_info = device_info
 
     @callback
     def _handle_coordinator_update(self) -> None:

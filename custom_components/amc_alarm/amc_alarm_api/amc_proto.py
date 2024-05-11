@@ -22,6 +22,7 @@ class AmcState(BaseModel):
     bit_opened: int
     bit_notReady: int
     remote: bool
+    progress: Optional[int]
 
 
 class AmcEntry(BaseModel):

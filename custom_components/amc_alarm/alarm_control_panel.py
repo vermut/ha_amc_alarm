@@ -17,7 +17,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .amc_alarm_api.amc_proto import CentralDataSections
 from .amc_alarm_api.api import AmcStatesParser
 from .const import DOMAIN
-from .entity import AmcBaseEntity
+from .entity import AmcBaseEntity, device_info
 
 
 async def async_setup_entry(
@@ -42,6 +42,7 @@ async def async_setup_entry(
         alarms.extend(
             AmcAreaGroup(
                 coordinator=coordinator,
+                device_info=device_info(states, central_id),
                 amc_entry=x,
                 attributes_fn=_group(central_id, x.Id),
             )
@@ -50,6 +51,7 @@ async def async_setup_entry(
         alarms.extend(
             AmcAreaGroup(
                 coordinator=coordinator,
+                device_info=device_info(states, central_id),
                 amc_entry=x,
                 attributes_fn=_area(central_id, x.Id),
             )
@@ -58,13 +60,14 @@ async def async_setup_entry(
         alarms.extend(
             AmcZone(
                 coordinator=coordinator,
+                device_info=device_info(states, central_id),
                 amc_entry=x,
                 attributes_fn=_zone(central_id, x.Id),
             )
             for x in states.zones(central_id).list
         )
 
-    async_add_entities(alarms, True)
+    async_add_entities(alarms, False)
 
 
 class AmcZone(AmcBaseEntity, AlarmControlPanelEntity):

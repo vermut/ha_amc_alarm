@@ -15,6 +15,8 @@ from .amc_proto import (
     CentralDataSections,
     AmcData,
     AmcEntry,
+    AmcNotificationEntry,
+    AmcNotification,
 )
 from .exceptions import AmcException, ConnectionFailed, AuthenticationFailed
 
@@ -33,13 +35,13 @@ class SimplifiedAmcApi:
     MAX_RETRY_DELAY = 600  # 10 min
 
     def __init__(
-            self,
-            login_email,
-            password,
-            central_id,
-            central_username,
-            central_password,
-            async_state_updated_callback=None,
+        self,
+        login_email,
+        password,
+        central_id,
+        central_username,
+        central_password,
+        async_state_updated_callback=None,
     ):
         self._raw_states: dict[str, AmcCentralResponse] = {}
 
@@ -72,7 +74,7 @@ class SimplifiedAmcApi:
                 continue
 
             if self._listen_task.done() and issubclass(
-                    self._listen_task.exception().__class__, AmcException
+                self._listen_task.exception().__class__, AmcException
             ):
                 raise self._listen_task.exception()  # Something known happened in the listener
 
@@ -98,7 +100,7 @@ class SimplifiedAmcApi:
             try:
                 _LOGGER.debug("Logging into %s" % self._ws_url)
                 async with session.ws_connect(
-                        self._ws_url, heartbeat=15, autoping=True
+                    self._ws_url, heartbeat=15, autoping=True
                 ) as ws_client:
                     self._ws_state = ConnectionState.CONNECTED
                     self._websocket = ws_client
@@ -125,7 +127,7 @@ class SimplifiedAmcApi:
                 _LOGGER.error("Unexpected response received from server : %s", error)
                 self._ws_state = ConnectionState.STOPPED
             except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
-                retry_delay = min(2 ** self._failed_attempts * 30, self.MAX_RETRY_DELAY)
+                retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
                 self._failed_attempts += 1
                 _LOGGER.error(
                     "Websocket connection failed, retrying in %ds: %s",
@@ -233,7 +235,7 @@ class AmcStatesParser:
     def raw_states(self) -> dict[str, AmcCentralResponse]:
         return self._raw_states
 
-    def _get_section(self, central_id, section_index) -> AmcData:
+    def _get_section(self, central_id, section_index) -> AmcData | AmcNotification:
         central = self._raw_states[central_id]
         zones = next(x for x in central.data if x.index == section_index)
         return zones
@@ -265,7 +267,20 @@ class AmcStatesParser:
     def system_statuses(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.SYSTEM_STATUS)
 
-    def system_status(self, central_id: str, entry_id: int) -> AmcEntry:
+    def system_status(self, central_id: str, entry_index: int) -> AmcEntry:
         return next(
-            x for x in self.system_statuses(central_id).list if x.Id == entry_id
+            x for x in self.system_statuses(central_id).list if x.index == entry_index
         )
+
+    def notifications(self, central_id: str) -> list[AmcNotificationEntry]:
+        return self._get_section(central_id, CentralDataSections.NOTIFICATIONS).list
+
+    def real_name(self, central_id: str) -> str:
+        return self._raw_states[central_id].realName
+
+    def status(self, central_id: str) -> str:
+        return self._raw_states[central_id].status
+
+    def model(self, central_id: str) -> str:
+        # Assuming from status
+        return self._raw_states[central_id].status.split(" ")[-1]
