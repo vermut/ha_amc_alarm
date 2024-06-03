@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Union, Optional, List
+from typing import Optional, List, Literal
 
 from pydantic import BaseModel
 
@@ -13,7 +13,7 @@ class AmcCommands(StrEnum):
 
 
 class AmcState(BaseModel):
-    redalert: int
+    redalert: Optional[int]
     bit_showHide: int
     bit_on: int
     bit_exludable: int
@@ -36,9 +36,22 @@ class AmcEntry(BaseModel):
 
 
 class AmcData(BaseModel):
-    index: int
+    index: Literal[0, 1, 2, 3]
     name: str
     list: list[AmcEntry]
+
+
+class AmcSystemStateEntry(BaseModel):
+    index: int
+    name: str
+    Id: Optional[int]
+    states: AmcState
+
+
+class AmcSystemState(BaseModel):
+    index: Literal[4]
+    name: str
+    list: list[AmcSystemStateEntry]
 
 
 class AmcNotificationEntry(BaseModel):
@@ -48,9 +61,25 @@ class AmcNotificationEntry(BaseModel):
 
 
 class AmcNotification(BaseModel):
-    index: int
+    index: Literal[5]
     name: str
     list: list[AmcNotificationEntry]
+
+
+class AmcStatusEntry(BaseModel):
+    index: Literal[6]
+    name: str
+    model: int
+    firmwareVersion: str
+
+
+class AmcUserEntry(BaseModel):
+    name: Optional[str]
+
+
+class AmcUsers(BaseModel):
+    index: Literal[7]
+    users: dict[str, AmcUserEntry]
 
 
 class AmcCentral(BaseModel):
@@ -62,7 +91,9 @@ class AmcCentral(BaseModel):
 class AmcCentralResponse(BaseModel):
     status: str
     realName: Optional[str] = None
-    data: Optional[list[Union[AmcData, AmcNotification]]] = None
+    data: Optional[
+        list[AmcData | AmcSystemState | AmcNotification | AmcStatusEntry | AmcUsers]
+    ] = None
 
 
 class AmcUser(BaseModel):
@@ -117,15 +148,16 @@ class CentralDataSections:
 
 
 class SystemStatusDataSections:
-    GSM_SIGNAL = 0  # _(index=, entity_prefix="GSM Signal")
-    BATTERY_STATUS = 1  # _(index=, entity_prefix="Battery Status")
-    POWER = 2  # _(index=, entity_prefix="Power")
-    PHONE_LINE = 3  # _(index=, entity_prefix="Phone Line")
-    PANEL_MANIPULATION = 4  # _(index=, entity_prefix="Panel Manipulation")
-    LINE_MANIPULATION = 5  # _(index=, entity_prefix="Line Manipulation")
-    PERIPHERALS = 6  # _(index=, entity_prefix="Peripherals")
-    CONNECTIONS = 7  # _(index=, entity_prefix="Connections")
-    WIRELESS = 8  # _(index=, entity_prefix="Wireless")
+    GSM_SIGNAL = 0
+    BATTERY_STATUS = 1
+    POWER = 2
+    PHONE_LINE = 3
+    PANEL_MANIPULATION = 4
+    LINE_MANIPULATION = 5
+    PERIPHERALS = 6
+    CONNECTIONS = 7
+    WIRELESS = 8
+    MOBILE_NETWORK = 10
 
     __all__ = [
         GSM_SIGNAL,
@@ -137,4 +169,5 @@ class SystemStatusDataSections:
         PERIPHERALS,
         CONNECTIONS,
         WIRELESS,
+        MOBILE_NETWORK,
     ]
