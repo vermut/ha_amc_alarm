@@ -147,8 +147,10 @@ class SimplifiedAmcApi:
     async def _process_message(self, message):
         try:
             data = AmcCommandResponse.parse_raw(message.data)
-        except ValueError:
-            _LOGGER.warning("Can't process data from server: %s" % message.data)
+        except ValueError as e:
+            _LOGGER.warning(
+                "Can't process data from server: %s, data=%s" % (e, message.data)
+            )
             return
 
         match data.command:
@@ -168,7 +170,7 @@ class SimplifiedAmcApi:
                     if self._callback:
                         await self._callback()
                 else:
-                    _LOGGER.debug("Error getting _raw_states: %s" % data.centrals)
+                    _LOGGER.debug("Error getting states: %s" % data.centrals)
                     raise AmcException(data.centrals)
             case _:
                 _LOGGER.warning("Unknown command received from server : %s", data)
