@@ -37,8 +37,10 @@ class AmcBaseEntity(CoordinatorEntity):
         self._attributes_fn = attributes_fn
         self._amc_entry = amc_entry
 
-        self._attr_name = amc_entry.name
-        self._attr_unique_id = str(amc_entry.Id)
+        self._attr_name = amc_entry.name or f"{type(self).__name__} {amc_entry.index}"
+        self._attr_unique_id = (
+            str(amc_entry.Id) or f"{type(self).__name__}{amc_entry.index}"
+        )
         self._attr_device_info = device_info
 
     @callback
