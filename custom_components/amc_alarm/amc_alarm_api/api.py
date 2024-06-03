@@ -165,8 +165,8 @@ class SimplifiedAmcApi:
             case AmcCommands.GET_STATES:
                 if data.status == AmcCommands.STATUS_OK:
                     self._raw_states = data.centrals
-                if self._callback:
-                    await self._callback()
+                    if self._callback:
+                        await self._callback()
                 else:
                     _LOGGER.debug("Error getting _raw_states: %s" % data.centrals)
                     raise AmcException(data.centrals)
