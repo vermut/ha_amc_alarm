@@ -239,8 +239,11 @@ class AmcStatesParser:
 
     def _get_section(self, central_id, section_index) -> AmcData | AmcNotification:
         central = self._raw_states[central_id]
-        zones = next(x for x in central.data if x.index == section_index)
-        return zones
+        try:
+            section = next(x for x in central.data if x.index == section_index)
+            return section
+        except StopIteration:
+            return AmcData(index=0, list=[], name="_none")
 
     def groups(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.GROUPS)
