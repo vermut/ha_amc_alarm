@@ -18,7 +18,14 @@ Usage
 Compatibility
 ===
 
-Tested on K8/1.77, X824/3.73. Presumable would be compatibly with anything that uses AMC Plus app. If it works for you - drop me a note.
+Known to work on:
+* K8/1.77
+* X824/3.73
+* X824V/4.10
+* X64V/4.20
+
+
+Presumable would be compatibly with anything that uses AMC Plus app. If it works for you - drop me a note.
 
 
 ## Thanks
