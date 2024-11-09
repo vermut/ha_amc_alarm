@@ -21,7 +21,7 @@ class AmcState(BaseModel):
     anomaly: int
     bit_opened: int
     bit_notReady: int
-    remote: bool
+    remote: Optional[bool]
     progress: Optional[int]
 
 
