@@ -7,9 +7,13 @@ from pydantic import BaseModel
 class AmcCommands(StrEnum):
     LOGIN_USER = "loginUser"
     GET_STATES = "getStates"
+    APPLY_PATCH = "applyPatch"
     STATUS_OK = "ok"
+    STATUS_ERROR = "error"
     STATUS_LOGGED_IN = "Logged"
     STATUS_LOGIN_NOT_FOUND = "User not found"
+    STATUS_NOT_AVAILABLE = "not available"
+    MESSAGE_PLEASE_LOGIN = "not logged, please login"
 
 
 class AmcState(BaseModel):
@@ -91,6 +95,7 @@ class AmcCentral(BaseModel):
 class AmcCentralResponse(BaseModel):
     status: str
     realName: Optional[str] = None
+    generalStates: Optional[dict] = None
     data: Optional[
         list[AmcData | AmcSystemState | AmcNotification | AmcStatusEntry | AmcUsers]
     ] = None
@@ -107,6 +112,10 @@ class AmcUser(BaseModel):
     userState: str
     token: str
 
+class AmcPatch(BaseModel):
+    op: str
+    path: str
+    value: dict
 
 class AmcLogin(BaseModel):
     email: str
@@ -131,9 +140,11 @@ class AmcCommand(BaseModel):
 class AmcCommandResponse(BaseModel):
     command: str
     status: Optional[str] = None
+    message: Optional[str] = None
     centrals: Optional[dict[str, AmcCentralResponse]] = None
     user: Optional[AmcUser] = None
     token: Optional[str] = None
+    patch: Optional[List[AmcPatch]] = None
 
 
 class CentralDataSections:

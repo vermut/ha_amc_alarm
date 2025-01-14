@@ -13,6 +13,7 @@ from .amc_proto import (
     AmcCentral,
     AmcCentralResponse,
     CentralDataSections,
+    AmcPatch,
     AmcData,
     AmcEntry,
     AmcNotificationEntry,
@@ -86,6 +87,10 @@ class SimplifiedAmcApi:
 
         await self.command_get_states()
 
+    async def connect_if_disconnected(self):
+        if self._ws_state != ConnectionState.CONNECTED or self._ws_state == ConnectionState.DISCONNECTED:
+            await self.connect()
+
     async def _listen(self) -> None:
         """Listen to messages"""
         # Infinite loop to listen to messages on the websocket and manage retries.
@@ -123,10 +128,10 @@ class SimplifiedAmcApi:
                             _LOGGER.debug("Websocket received data: %s", message.data)
                             await self._process_message(message)
 
-            except aiohttp.ClientResponseError as error:
-                _LOGGER.error("Unexpected response received from server : %s", error)
+            except AuthenticationFailed:
                 self._ws_state = ConnectionState.STOPPED
-            except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
+                raise
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.ClientResponseError) as error:
                 retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
                 self._failed_attempts += 1
                 _LOGGER.error(
@@ -136,9 +141,9 @@ class SimplifiedAmcApi:
                 )
                 self._ws_state = ConnectionState.DISCONNECTED
                 await asyncio.sleep(retry_delay)
-            except AmcException:
-                self._ws_state = ConnectionState.STOPPED
-                raise
+            #except AmcException:
+            #    self._ws_state = ConnectionState.STOPPED
+            #    raise
             except Exception as error:
                 if self._ws_state != ConnectionState.STOPPED:
                     _LOGGER.exception("Unexpected exception occurred: %s", error)
@@ -152,7 +157,7 @@ class SimplifiedAmcApi:
                 "Can't process data from server: %s, data=%s" % (e, message.data)
             )
             return
-
+        
         match data.command:
             case AmcCommands.LOGIN_USER:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:
@@ -161,19 +166,79 @@ class SimplifiedAmcApi:
                     self._sessionToken = data.user.token
                     self._failed_attempts = 0
                 else:
-                    _LOGGER.debug("Authorization failure: %s" % data.status)
-                    raise AuthenticationFailed(data.status)
+                    _LOGGER.debug("Authorization failure: %s, data=%s" % (data.status, message.data))
+                    raise AuthenticationFailed(data.status or message.data)
 
             case AmcCommands.GET_STATES:
+                
+                #Websocket received data: {"command":"getStates","status":"error","message":"not logged, please login"}
+                if data.status == AmcCommands.STATUS_ERROR and data.message == AmcCommands.MESSAGE_PLEASE_LOGIN:
+                    _LOGGER.debug("Logging after received request to relogin: %s" % (message.data))
+                    await self._login()
+                    return
+
                 if data.status == AmcCommands.STATUS_OK:
                     self._raw_states = data.centrals
                     if self._callback:
                         await self._callback()
+                #elif data.status == AmcCommands.STATUS_NOT_AVAILABLE:
+                #    _LOGGER.debug("Error getting states (not available): %s" % data.centrals)
+                #    await self.disconnect()
                 else:
-                    _LOGGER.debug("Error getting states: %s" % data.centrals)
-                    raise AmcException(data.centrals)
+                    _LOGGER.warning("Error getting states: %s, data=%s" % (data.centrals, message.data))
+                    raise AmcException(data.centrals or message.data)
+            case AmcCommands.APPLY_PATCH:
+                try:
+                    for patch in data.patch:
+                        await self._process_message_patch(patch)
+                    if self._callback:
+                        await self._callback()
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Can't process patch from server: %s, data=%s" % (e, message.data)
+                    )
             case _:
-                _LOGGER.warning("Unknown command received from server : %s", data)
+                _LOGGER.warning("Unknown command received from server : %s, data=%s" % (data, message.data))
+
+    async def _process_message_patch(self, patch):
+        obj_parent = None
+        obj = None
+        nodes = patch.path.split('/')
+        curr_node = ""
+        for node in nodes:
+            if node == "":
+                continue
+            curr_node = curr_node + "/" + node
+            if node == 'centrals' and obj == None:
+                obj = self._raw_states
+                continue
+            if not obj:
+                _LOGGER.warning("Can't process patch, obj is null: node: %s, data=%s" % (curr_node, patch))
+                return
+            obj_parent = obj
+            if isinstance(obj, list) and node.isnumeric():
+                #_LOGGER.debug("Getting list node %s: list count: %s, data=%s" % (curr_node, len(obj_parent), patch))
+                obj = None
+                #gli accessi alle liste lavorano sugli index nel modello
+                for lst_item in obj_parent:
+                    if int(getattr(lst_item, "index", -1)) == int(node):
+                        obj = lst_item
+                        #_LOGGER.debug("Finded list item %s" % (obj))
+                        break
+            elif isinstance(obj, dict):
+                obj = obj[node]
+            else:
+                obj = getattr(obj, node)
+            if not obj:
+                _LOGGER.warning("Can't process patch, obj is null: node: %s, data=%s" % (curr_node, patch))
+                return
+
+        if isinstance(obj, dict):
+            obj.update(patch.value)
+        else:
+            obj.parse_obj(patch.value)
+
+
 
     async def _login(self):
         _LOGGER.info("Logging in with email: %s", self._login_email)
