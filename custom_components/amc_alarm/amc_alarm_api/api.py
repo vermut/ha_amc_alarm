@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import json 
 from enum import Enum
+from datetime import datetime, timedelta
 
 import aiohttp
 from aiohttp import WSMessage
@@ -60,6 +62,7 @@ class SimplifiedAmcApi:
         self._sessionToken = None
 
         self._callback = async_state_updated_callback
+        self._last_login_date = None
 
     async def connect(self):
         await self.disconnect()
@@ -88,7 +91,14 @@ class SimplifiedAmcApi:
         await self.command_get_states()
 
     async def connect_if_disconnected(self):
-        if self._ws_state != ConnectionState.CONNECTED or self._ws_state == ConnectionState.DISCONNECTED:
+        if self._ws_state == ConnectionState.DISCONNECTED:
+            await self.connect()
+        if not self._websocket or not self._aiohttp_session:
+            await self.connect()
+        # File "/usr/local/lib/python3.13/site-packages/aiohttp/_websocket/writer.py", line 73, in send_frame
+        #    raise ClientConnectionResetError("Cannot write to closing transport")
+        #aiohttp.client_exceptions.ClientConnectionResetError: Cannot write to closing transport
+        if self._aiohttp_session.closed or self._websocket.closed:
             await self.connect()
 
     async def _listen(self) -> None:
@@ -131,7 +141,10 @@ class SimplifiedAmcApi:
             except AuthenticationFailed:
                 self._ws_state = ConnectionState.STOPPED
                 raise
-            except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.ClientResponseError) as error:
+            except aiohttp.ClientResponseError as error:
+                _LOGGER.error("Unexpected response received from server : %s", error)
+            #    self._ws_state = ConnectionState.STOPPED
+            except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.client_exceptions.ClientConnectionResetError) as error:
                 retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
                 self._failed_attempts += 1
                 _LOGGER.error(
@@ -173,41 +186,70 @@ class SimplifiedAmcApi:
                 
                 #Websocket received data: {"command":"getStates","status":"error","message":"not logged, please login"}
                 if data.status == AmcCommands.STATUS_ERROR and data.message == AmcCommands.MESSAGE_PLEASE_LOGIN:
-                    _LOGGER.debug("Logging after received request to relogin: %s" % (message.data))
-                    await self._login()
+                    if self._last_login_date + timedelta(seconds=15) < datetime.now():
+                        _LOGGER.debug("Logging after received request to relogin: %s" % (message.data))
+                        await self._login()
                     return
 
                 if data.status == AmcCommands.STATUS_OK:
+                    #if not self._raw_states:
                     self._raw_states = data.centrals
+                    #lo aggiorno cosi il valore passato al coordinator non cambia e viene aggiornato subito
+                    #self._raw_states.update(data.centrals)
                     if self._callback:
+                        self._raw_states[self._central_id].returned = 0
                         await self._callback()
-                #elif data.status == AmcCommands.STATUS_NOT_AVAILABLE:
+                elif data.status == AmcCommands.STATUS_KO:
+                    status_new = data.centrals[self._central_id].status
+                    status_old = self._raw_states[self._central_id].status;
+                    if status_new != status_old:
+                        _LOGGER.debug("Error getting states (%s): %s" % (status_new, message.data))
+                        self._raw_states[self._central_id].status = status_new                        
+                        if self._callback:
+                            self._raw_states[self._central_id].returned = 0
+                            await self._callback()
+                    #{"command":"getStates","status":"ko","layout":null,"centrals":{"10EF60834A5436323003323338310000":{"statusID":-1,"status":"not available"}}}
                 #    _LOGGER.debug("Error getting states (not available): %s" % data.centrals)
-                #    await self.disconnect()
+                    #await self.disconnect()
                 else:
                     _LOGGER.warning("Error getting states: %s, data=%s" % (data.centrals, message.data))
                     raise AmcException(data.centrals or message.data)
             case AmcCommands.APPLY_PATCH:
-                try:
-                    for patch in data.patch:
-                        await self._process_message_patch(patch)
-                    if self._callback:
-                        await self._callback()
-                except Exception as e:
-                    _LOGGER.warning(
-                        "Can't process patch from server: %s, data=%s" % (e, message.data)
-                    )
+                #try:
+                #zona = AmcStatesParser(self._raw_states).zone(self._central_id, 40282).states.bit_opened
+                for patch in data.patch:
+                    await self._process_message_patch(patch)
+                #zona_new = AmcStatesParser(self._raw_states).zone(self._central_id, 40282).states.bit_opened
+                #_LOGGER.debug(
+                #    "APPLY_PATCH log test id 19: old: %s, new: %s" % (zona, zona_new)
+                #)
+                if self._callback:
+                    self._raw_states[self._central_id].returned = 0
+                    await self._callback()
+                #except Exception as e:
+                #    _LOGGER.warning(
+                #        "Can't process patch from server: %s, data=%s" % (e, message.data)
+                #    )
             case _:
                 _LOGGER.warning("Unknown command received from server : %s, data=%s" % (data, message.data))
 
     async def _process_message_patch(self, patch):
+        is_add = patch.op == "add"
+        is_replace = patch.op == "replace"
+        data_node_type = -1
         obj_parent = None
         obj = None
+        obj_is_central_data_list = False
+        obj_is_central_data_node = False
         nodes = patch.path.split('/')
         curr_node = ""
-        for node in nodes:
+        for node_index, node in enumerate(nodes):
+            node_is_last = node_index == len(nodes) - 1
             if node == "":
                 continue
+            #per ora non è gestito bene notifications
+            if node == 'notifications':
+                return
             curr_node = curr_node + "/" + node
             if node == 'centrals' and obj == None:
                 obj = self._raw_states
@@ -215,10 +257,28 @@ class SimplifiedAmcApi:
             if not obj:
                 _LOGGER.warning("Can't process patch, obj is null: node: %s, data=%s" % (curr_node, patch))
                 return
+
+            if node_is_last and is_add:
+                #arrivano le notifiche in add
+                if len(obj) == 0:
+                    return
+                new_node = obj[0].copy()
+                new_node = self._update_model_from_dict(new_node, patch.value, False, curr_node)
+                obj.insert(0, new_node)
+                return
+            if node_is_last and not isinstance(patch.value, dict):
+                #esempio senza dict: data/5/unvisited", "value": "1" }
+                my_dictionary = {}
+                my_dictionary[node] = patch.value
+                self._update_model_from_dict(obj, my_dictionary, True, curr_node)
+                return
+
             obj_parent = obj
             if isinstance(obj, list) and node.isnumeric():
+                if data_node_type == -1 and obj_is_central_data_list:
+                    data_node_type = int(node)
                 #_LOGGER.debug("Getting list node %s: list count: %s, data=%s" % (curr_node, len(obj_parent), patch))
-                obj = None
+                obj = None                
                 #gli accessi alle liste lavorano sugli index nel modello
                 for lst_item in obj_parent:
                     if int(getattr(lst_item, "index", -1)) == int(node):
@@ -232,15 +292,48 @@ class SimplifiedAmcApi:
             if not obj:
                 _LOGGER.warning("Can't process patch, obj is null: node: %s, data=%s" % (curr_node, patch))
                 return
+            obj_is_central_data_node = obj_is_central_data_list
+            obj_is_central_data_list = node == "data" and isinstance(obj_parent, AmcCentralResponse)
+        
+        self._update_model_from_dict(obj, patch.value, True, curr_node)
 
+    def _update_model_from_dict(self, obj, new_values, exec_parse_obj, curr_node):
         if isinstance(obj, dict):
-            obj.update(patch.value)
+            obj.update(new_values)
+            return obj
         else:
-            obj.parse_obj(patch.value)
-
-
+            if exec_parse_obj:
+                try:
+                    new_obj = obj.parse_obj(new_values)
+                except Exception as e:
+                    new_obj = obj
+                    exec_parse_obj = False
+                    #_LOGGER.warning(
+                    #    "Can't process patch from server: %s, data=%s" % (e, message.data)
+                    #)                
+            else:
+                new_obj = obj
+            #_LOGGER.debug("Changing values: node: %s, patch=%s" % (obj_parent, patch.value))
+            #if patch.value["bit_opened"] != getattr(obj, "bit_opened", None):
+            #    _LOGGER.debug("Changing bit_opened attribute 1: node: %s, data=%s" % (obj.bit_opened, patch.value["bit_opened"]))
+                #obj1 = obj.parse_obj(patch.value)
+            for key,value in new_values.items():
+                if not hasattr(obj,key):
+                    continue
+                old_value = getattr(obj,key,None)
+                if old_value == value:
+                    continue
+                new_value = getattr(new_obj,key,None)
+                setattr(obj, key, new_value)
+                if exec_parse_obj:
+                    _LOGGER.debug("Changing %s %s attribute: old_value: %s, new_value=%s" % (curr_node, key, old_value, new_value))
+            return new_obj
+            #if hasattr(patch.value, "anomaly") and getattr(patch.value, "anomaly", None) != getattr(obj, "anomaly", None):
+            #    _LOGGER.debug("Changing anomaly attribute: node: %s, data=%s" % (obj_parent, patch.value))
+            #obj.parse_obj(patch.value)
 
     async def _login(self):
+        self._last_login_date = datetime.now()
         _LOGGER.info("Logging in with email: %s", self._login_email)
         login_message = AmcCommand(
             command=AmcCommands.LOGIN_USER,

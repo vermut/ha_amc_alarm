@@ -9,6 +9,7 @@ class AmcCommands(StrEnum):
     GET_STATES = "getStates"
     APPLY_PATCH = "applyPatch"
     STATUS_OK = "ok"
+    STATUS_KO = "ko"
     STATUS_ERROR = "error"
     STATUS_LOGGED_IN = "Logged"
     STATUS_LOGIN_NOT_FOUND = "User not found"
@@ -99,6 +100,7 @@ class AmcCentralResponse(BaseModel):
     data: Optional[
         list[AmcData | AmcSystemState | AmcNotification | AmcStatusEntry | AmcUsers]
     ] = None
+    returned: Optional[int] = None
 
 
 class AmcUser(BaseModel):
@@ -115,7 +117,7 @@ class AmcUser(BaseModel):
 class AmcPatch(BaseModel):
     op: str
     path: str
-    value: dict
+    value: dict | str | int
 
 class AmcLogin(BaseModel):
     email: str

@@ -1,7 +1,10 @@
 {
+    "title": "AMC",
     "config": {
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Device is already configured",
+            "reconfigure_successful": "Configuration completed",
+            "account_mismatch": "Central ID is not allowed to change"
         },
         "error": {
             "cannot_connect": "Failed to connect",
@@ -10,6 +13,7 @@
         },
         "step": {
             "user": {
+                "title": "Set up AMC",
                 "data": {
                     "central_id": "AMC Central ID",
                     "central_password": "AMC Central Password",
@@ -23,6 +27,29 @@
                     "central_username": "AMC Central Login",
                     "email": "Email from webapp",
                     "password": "Password from webapp"
+                }
+            },
+            "two": {
+                "title": "Set up AMC (2) - Status sensors",
+                "data": {
+                    "title": "AMC Central Title",
+                    "scan_interval": "Scan Interval (seconds)",
+                    "sensor_status_system_prefix": "Sensor System Status Prefix",
+                    "sensor_status_zone_included": "Sensor Zone Status Included",
+                    "sensor_status_zone_prefix": "Sensor Zone Status Prefix",
+                    "output_included": "Output Included",
+                    "output_prefix": "Output Prefix"
+                }
+            },
+            "three": {
+                "title": "Set up AMC (3) - Alarm Control Panel entity",
+                "data": {
+                    "alarm_group_included": "ACP Group Included",
+                    "alarm_group_prefix": "ACP Group Prefix",
+                    "alarm_area_included": "ACP Area Included",
+                    "alarm_area_prefix": "ACP Area Prefix",
+                    "alarm_zone_included": "ACP Zone Included",
+                    "alarm_zone_prefix": "ACP Zone Prefix"
                 }
             }
         }

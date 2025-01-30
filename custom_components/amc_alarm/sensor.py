@@ -8,17 +8,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import (
-    DataUpdateCoordinator,
-    CoordinatorEntity,
-)
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from .coordinator import AmcDataUpdateCoordinator
 from .amc_alarm_api.amc_proto import (
     CentralDataSections,
     AmcNotificationEntry,
     SystemStatusDataSections,
 )
 from .amc_alarm_api.api import AmcStatesParser
-from .const import DOMAIN
+from .const import *
 from .entity import device_info, AmcBaseEntity
 
 
@@ -27,7 +25,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: AmcDataUpdateCoordinator = entry.runtime_data
     states = AmcStatesParser(coordinator.data)
     sensors: list[SensorEntity] = []
 
@@ -43,34 +41,30 @@ async def async_setup_entry(
         sensors.append(
             AmcSignalSensor(
                 coordinator=coordinator,
-                device_info=device_info(states, central_id),
-                amc_entry=states.system_status(
-                    central_id, SystemStatusDataSections.GSM_SIGNAL
-                ),
-                attributes_fn=_system_status(
-                    central_id, SystemStatusDataSections.GSM_SIGNAL
-                ),
+                device_info=device_info(states, central_id, coordinator),
+                amc_entry=states.system_status(central_id, SystemStatusDataSections.GSM_SIGNAL),
+                attributes_fn=_system_status(central_id, SystemStatusDataSections.GSM_SIGNAL),
+                name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
+                id_prefix="system_status_",
             )
         )
         sensors.append(
             AmcBatterySensor(
                 coordinator=coordinator,
-                device_info=device_info(states, central_id),
-                amc_entry=states.system_status(
-                    central_id, SystemStatusDataSections.BATTERY_STATUS
-                ),
-                attributes_fn=_system_status(
-                    central_id, SystemStatusDataSections.BATTERY_STATUS
-                ),
+                device_info=device_info(states, central_id, coordinator),
+                amc_entry=states.system_status(central_id, SystemStatusDataSections.BATTERY_STATUS),
+                attributes_fn=_system_status(central_id, SystemStatusDataSections.BATTERY_STATUS),
+                name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
+                id_prefix="system_status_",
             )
         )
 
         sensors.append(
             AmcNotification(
                 coordinator=coordinator,
-                device_info=device_info(states, central_id),
+                device_info=device_info(states, central_id, coordinator),
                 amc_notifications=states.notifications(central_id),
-                attributes_fn=_notifications(central_id),
+                attributes_fn=_notifications(central_id)
             )
         )
 
@@ -102,7 +96,7 @@ class AmcNotification(CoordinatorEntity, SensorEntity):
 
     def __init__(
         self,
-        coordinator: DataUpdateCoordinator,
+        coordinator: AmcDataUpdateCoordinator,
         device_info: DeviceInfo,
         amc_notifications: list[AmcNotificationEntry],
         attributes_fn: Callable,

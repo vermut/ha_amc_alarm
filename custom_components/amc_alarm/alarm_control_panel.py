@@ -3,20 +3,14 @@ from __future__ import annotations
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
 )
-from homeassistant.components.alarm_control_panel import AlarmControlPanelEntityFeature
+from homeassistant.components.alarm_control_panel import AlarmControlPanelEntityFeature, AlarmControlPanelState
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    STATE_ALARM_ARMED_AWAY,
-    STATE_ALARM_DISARMED,
-    STATE_ALARM_TRIGGERED,
-    STATE_ALARM_PENDING,
-)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from .coordinator import AmcDataUpdateCoordinator
 from .amc_alarm_api.amc_proto import CentralDataSections
 from .amc_alarm_api.api import AmcStatesParser
-from .const import DOMAIN
+from .const import *
 from .entity import AmcBaseEntity, device_info
 
 
@@ -25,7 +19,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: AmcDataUpdateCoordinator = entry.runtime_data
     states = AmcStatesParser(coordinator.data)
     alarms: list[AlarmControlPanelEntity] = []
 
@@ -39,33 +33,42 @@ async def async_setup_entry(
         return lambda raw_state: AmcStatesParser(raw_state).area(_central_id, _amc_id)
 
     for central_id in states.raw_states():
-        alarms.extend(
-            AmcAreaGroup(
-                coordinator=coordinator,
-                device_info=device_info(states, central_id),
-                amc_entry=x,
-                attributes_fn=_group(central_id, x.Id),
+        if coordinator.get_config(CONF_ACP_GROUP_INCLUDED):
+            alarms.extend(
+                AmcAreaGroup(
+                    coordinator=coordinator,
+                    device_info=device_info(states, central_id, coordinator),
+                    amc_entry=x,
+                    attributes_fn=_group(central_id, x.Id),
+                    name_prefix=coordinator.get_config(CONF_ACP_GROUP_PREFIX),
+                    id_prefix="alarm_group_",
+                )
+                for x in states.groups(central_id).list
             )
-            for x in states.groups(central_id).list
-        )
-        alarms.extend(
-            AmcAreaGroup(
-                coordinator=coordinator,
-                device_info=device_info(states, central_id),
-                amc_entry=x,
-                attributes_fn=_area(central_id, x.Id),
+        if coordinator.get_config(CONF_ACP_AREA_INCLUDED):
+            alarms.extend(
+                AmcAreaGroup(
+                    coordinator=coordinator,
+                    device_info=device_info(states, central_id, coordinator),
+                    amc_entry=x,
+                    attributes_fn=_area(central_id, x.Id),
+                    name_prefix=coordinator.get_config(CONF_ACP_AREA_PREFIX),
+                    id_prefix="alarm_area_",
+                )
+                for x in states.areas(central_id).list
             )
-            for x in states.areas(central_id).list
-        )
-        alarms.extend(
-            AmcZone(
-                coordinator=coordinator,
-                device_info=device_info(states, central_id),
-                amc_entry=x,
-                attributes_fn=_zone(central_id, x.Id),
+        if coordinator.get_config(CONF_ACP_ZONE_INCLUDED):
+            alarms.extend(
+                AmcZone(
+                    coordinator=coordinator,
+                    device_info=device_info(states, central_id, coordinator),
+                    amc_entry=x,
+                    attributes_fn=_zone(central_id, x.Id),
+                    name_prefix=coordinator.get_config(CONF_ACP_ZONE_PREFIX),
+                    id_prefix="alarm_zone_",
+                )
+                for x in states.zones(central_id).list
             )
-            for x in states.zones(central_id).list
-        )
 
     async_add_entities(alarms, False)
 
@@ -77,25 +80,25 @@ class AmcZone(AmcBaseEntity, AlarmControlPanelEntity):
     _amc_group_id = CentralDataSections.ZONES
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
-        api = self.hass.data[DOMAIN]["__api__"]
+        api = self.coordinator.api
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, True)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
-        api = self.hass.data[DOMAIN]["__api__"]
+        api = self.coordinator.api
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, False)
 
     @property
-    def state(self) -> str | None:
+    def alarm_state(self) -> AlarmControlPanelState | None:
         if self._amc_entry.states.anomaly:
-            return STATE_ALARM_TRIGGERED
+            return AlarmControlPanelState.TRIGGERED
 
         match (self._amc_entry.states.bit_armed, self._amc_entry.states.bit_on):
             case (1, 1):
-                return STATE_ALARM_ARMED_AWAY
+                return AlarmControlPanelState.ARMED_AWAY
             case (0, 1):
-                return STATE_ALARM_PENDING
+                return AlarmControlPanelState.PENDING
             case _:
-                return STATE_ALARM_DISARMED
+                return AlarmControlPanelState.DISARMED
 
 
 class AmcAreaGroup(AmcBaseEntity, AlarmControlPanelEntity):
@@ -104,24 +107,24 @@ class AmcAreaGroup(AmcBaseEntity, AlarmControlPanelEntity):
     _amc_group_id = None
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
-        api = self.hass.data[DOMAIN]["__api__"]
+        api = self.coordinator.api
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, True)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
-        api = self.hass.data[DOMAIN]["__api__"]
+        api = self.coordinator.api
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, False)
 
     @property
-    def state(self) -> str | None:
+    def alarm_state(self) -> AlarmControlPanelState | None:
         match (self._amc_entry.states.bit_on, self._amc_entry.states.anomaly):
             case (1, 1):
-                return STATE_ALARM_TRIGGERED
+                return AlarmControlPanelState.TRIGGERED
             case (1, 0):
-                return STATE_ALARM_ARMED_AWAY
+                return AlarmControlPanelState.ARMED_AWAY
             case (0, 1):
-                return STATE_ALARM_PENDING
+                return AlarmControlPanelState.PENDING
             case (0, 0):
-                return STATE_ALARM_DISARMED
+                return AlarmControlPanelState.DISARMED
 
 
 class AmcArea(AmcAreaGroup):

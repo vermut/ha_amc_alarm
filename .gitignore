@@ -4,3 +4,4 @@
 
 /.vs
 /.gitignore
+__pycache__
