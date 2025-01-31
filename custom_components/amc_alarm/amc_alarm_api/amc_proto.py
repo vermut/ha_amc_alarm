@@ -8,6 +8,7 @@ class AmcCommands(StrEnum):
     LOGIN_USER = "loginUser"
     GET_STATES = "getStates"
     APPLY_PATCH = "applyPatch"
+    CHECK_CENTRALS = "checkCentrals"
     STATUS_OK = "ok"
     STATUS_KO = "ko"
     STATUS_ERROR = "error"

@@ -172,6 +172,9 @@ class SimplifiedAmcApi:
             return
         
         match data.command:
+            case AmcCommands.CHECK_CENTRALS:
+                break
+
             case AmcCommands.LOGIN_USER:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:
                     _LOGGER.debug("Authorized")
