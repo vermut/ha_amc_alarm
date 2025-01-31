@@ -173,7 +173,7 @@ class SimplifiedAmcApi:
         
         match data.command:
             case AmcCommands.CHECK_CENTRALS:
-                break
+                _LOGGER.debug("Received message checkCentrals")
 
             case AmcCommands.LOGIN_USER:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:
