@@ -80,6 +80,7 @@ class AmcStatusEntry(BaseModel):
 
 
 class AmcUserEntry(BaseModel):
+    index: Optional[int]
     name: Optional[str]
 
 
@@ -139,6 +140,9 @@ class AmcCommand(BaseModel):
     index: Optional[int] = None
     state: Optional[bool] = None
 
+    userPIN: Optional[str] = None
+    userIdx: Optional[int] = None
+
 
 class AmcCommandResponse(BaseModel):
     command: str
@@ -157,6 +161,7 @@ class CentralDataSections:
     OUTPUTS = 3
     SYSTEM_STATUS = 4
     NOTIFICATIONS = 5
+    USERS = 7
 
     __all__ = [GROUPS, AREAS, OUTPUTS, SYSTEM_STATUS, NOTIFICATIONS]
 

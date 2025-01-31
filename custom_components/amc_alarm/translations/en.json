@@ -19,14 +19,16 @@
                     "central_password": "AMC Central Password",
                     "central_username": "AMC Central Login",
                     "email": "Email",
-                    "password": "Password"
+                    "password": "Password",
+                    "user_pin": "AMC User Pin"
                 },
                 "data_description": {
                     "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
                     "central_password": "AMC Central Password",
                     "central_username": "AMC Central Login",
                     "email": "Email from webapp",
-                    "password": "Password from webapp"
+                    "password": "Password from webapp",
+                    "user_pin": "Default User Pin for switch outputs"
                 }
             },
             "two": {

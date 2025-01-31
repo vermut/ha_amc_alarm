@@ -133,4 +133,9 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
         except AmcException as ex:
             raise ConfigEntryNotReady("Unable to connect to AMC") from ex
 
-    
+
+    def get_user_pin(self, userPIN: str) -> str:
+        if not userPIN:
+            userPIN = self.get_config(CONF_USER_PIN)
+        
+        return userPIN

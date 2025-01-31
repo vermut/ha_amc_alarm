@@ -18,6 +18,8 @@ CONF_CENTRAL_ID = "central_id"
 CONF_CENTRAL_USERNAME = "central_username"
 CONF_CENTRAL_PASSWORD = "central_password"
 
+CONF_USER_PIN = "user_pin"
+
 CONF_FLOW_VERSION = "config_version"
 CONF_FLOW_LAST_VERSION = 1
 

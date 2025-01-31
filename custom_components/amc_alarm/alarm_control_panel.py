@@ -81,11 +81,13 @@ class AmcZone(AmcBaseEntity, AlarmControlPanelEntity):
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         api = self.coordinator.api
-        await api.command_set_states(self._amc_group_id, self._amc_entry.index, True)
+        code = self.coordinator.get_user_pin(code)
+        await api.command_set_states(self._amc_group_id, self._amc_entry.index, 1, code)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         api = self.coordinator.api
-        await api.command_set_states(self._amc_group_id, self._amc_entry.index, False)
+        code = self.coordinator.get_user_pin(code)
+        await api.command_set_states(self._amc_group_id, self._amc_entry.index, 0, code)
 
     @property
     def alarm_state(self) -> AlarmControlPanelState | None:
@@ -108,11 +110,13 @@ class AmcAreaGroup(AmcBaseEntity, AlarmControlPanelEntity):
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         api = self.coordinator.api
-        await api.command_set_states(self._amc_group_id, self._amc_entry.index, True)
+        code = self.coordinator.get_user_pin(code)
+        await api.command_set_states(self._amc_group_id, self._amc_entry.index, 1, code)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         api = self.coordinator.api
-        await api.command_set_states(self._amc_group_id, self._amc_entry.index, False)
+        code = self.coordinator.get_user_pin(code)
+        await api.command_set_states(self._amc_group_id, self._amc_entry.index, 0, code)
 
     @property
     def alarm_state(self) -> AlarmControlPanelState | None:

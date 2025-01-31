@@ -17,6 +17,8 @@ from .amc_proto import (
     CentralDataSections,
     AmcPatch,
     AmcData,
+    AmcUsers,
+    AmcUserEntry,
     AmcEntry,
     AmcNotificationEntry,
     AmcNotification,
@@ -374,7 +376,11 @@ class SimplifiedAmcApi:
             )
         )
 
-    async def command_set_states(self, group: int, index: int, state: bool):
+    async def command_set_states(self, group: int, index: int, state: int, userPIN: str):
+        userIdx=None
+        user=AmcStatesParser(self.raw_states()).user_by_pin(self._central_id, userPIN) if userPIN else None
+        if user:
+            userIdx=user.index
         await self._send_message(
             AmcCommand(
                 command="setStates",
@@ -383,7 +389,9 @@ class SimplifiedAmcApi:
                 centralPassword=self._central_password,
                 group=group,
                 index=index,
-                state=state,
+                state=True if state == 1 else False,
+                userPIN=userPIN,
+                userIdx=userIdx
             )
         )
 
@@ -450,3 +458,12 @@ class AmcStatesParser:
     def model(self, central_id: str) -> str:
         # Assuming from status
         return self._raw_states[central_id].status.split(" ")[-1]
+        
+    def users(self, central_id: str) -> dict[str, AmcUserEntry]:
+        section : AmcUsers = self._get_section(central_id, CentralDataSections.USERS)
+        return section.users
+    
+    def user_by_pin(self, central_id: str, userPin: str) -> AmcUserEntry:
+        users = self.users(central_id)
+        return users.get(userPin)
+

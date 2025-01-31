@@ -52,8 +52,10 @@ class AmcOutput(AmcBaseEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         api = self.coordinator.api
-        await api.command_set_states(self._amc_group_id, self._amc_entry.index, True)
+        code = self.coordinator.get_user_pin(None)
+        await api.command_set_states(self._amc_group_id, self._amc_entry.index, 1, code)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         api = self.coordinator.api
-        await api.command_set_states(self._amc_group_id, self._amc_entry.index, False)
+        code = self.coordinator.get_user_pin(None)
+        await api.command_set_states(self._amc_group_id, self._amc_entry.index, 0, code)

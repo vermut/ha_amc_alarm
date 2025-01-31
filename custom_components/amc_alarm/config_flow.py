@@ -125,8 +125,11 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
+                states = AmcStatesParser(api.raw_states())
                 if user_input[CONF_CENTRAL_ID] not in api.raw_states():
                     errors["base"] = "User login is fine but can't find AMC Central"
+                elif len(str(user_input.get(CONF_USER_PIN))) > 0 and not states.user_by_pin(user_input[CONF_CENTRAL_ID], user_input.get(CONF_USER_PIN)):
+                    errors["base"] = "PIN not valid"
                 else:
                     unique_id = slugify("AMC %s" % (user_input[CONF_CENTRAL_ID]))
                     await self.async_set_unique_id(unique_id)
@@ -136,7 +139,6 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                         self._abort_if_unique_id_configured()
 
                     if not CONF_TITLE in self._entry_data:
-                        states = AmcStatesParser(api.raw_states())
                         realname = states.real_name(user_input[CONF_CENTRAL_ID])
                         self._entry_data[CONF_TITLE] = realname
 
@@ -206,7 +208,8 @@ def get_schema_config_user(config: dict = {}) -> dict:
         vol.Required(CONF_PASSWORD, description=get_vol_descr(config, CONF_PASSWORD)): str,
         vol.Required(CONF_CENTRAL_ID, description=get_vol_descr(config, CONF_CENTRAL_ID)): str,
         vol.Required(CONF_CENTRAL_USERNAME, description=get_vol_descr(config, CONF_CENTRAL_USERNAME)): str,
-        vol.Required(CONF_CENTRAL_PASSWORD, description=get_vol_descr(config, CONF_CENTRAL_PASSWORD)): str
+        vol.Required(CONF_CENTRAL_PASSWORD, description=get_vol_descr(config, CONF_CENTRAL_PASSWORD)): str,
+        vol.Optional(CONF_USER_PIN, description=get_vol_descr(config, CONF_USER_PIN)): str
     }
     return schema
 
