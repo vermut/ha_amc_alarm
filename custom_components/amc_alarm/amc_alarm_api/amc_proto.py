@@ -19,7 +19,7 @@ class AmcCommands(StrEnum):
 
 
 class AmcState(BaseModel):
-    redalert: Optional[int]
+    redalert: Optional[int] = None
     bit_showHide: int
     bit_on: int
     bit_exludable: int
@@ -27,8 +27,8 @@ class AmcState(BaseModel):
     anomaly: int
     bit_opened: int
     bit_notReady: int
-    remote: Optional[bool]
-    progress: Optional[int]
+    remote: Optional[bool] = None
+    progress: Optional[int] = None
 
 
 class AmcEntry(BaseModel):
@@ -50,7 +50,7 @@ class AmcData(BaseModel):
 class AmcSystemStateEntry(BaseModel):
     index: int
     name: str
-    Id: Optional[int]
+    Id: Optional[int] = None
     states: AmcState
 
 
@@ -80,8 +80,8 @@ class AmcStatusEntry(BaseModel):
 
 
 class AmcUserEntry(BaseModel):
-    index: Optional[int]
-    name: Optional[str]
+    index: Optional[int] = None
+    name: Optional[str] = None
 
 
 class AmcUsers(BaseModel):

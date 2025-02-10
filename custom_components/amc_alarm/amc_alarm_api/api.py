@@ -166,7 +166,8 @@ class SimplifiedAmcApi:
 
     async def _process_message(self, message):
         try:
-            data = AmcCommandResponse.parse_raw(message.data)
+            #parse_raw and parse_file are now deprecated. In Pydantic V2
+            data = AmcCommandResponse.model_validate_json(message.data, strict=False)
         except ValueError as e:
             _LOGGER.warning(
                 "Can't process data from server: %s, data=%s" % (e, message.data)
@@ -175,7 +176,11 @@ class SimplifiedAmcApi:
         
         match data.command:
             case AmcCommands.CHECK_CENTRALS:
-                _LOGGER.debug("Received message checkCentrals")
+                _LOGGER.debug("Received message %s" % data.command)
+            case "updateVideoList":
+                _LOGGER.debug("Received message %s" % data.command)
+            case "visitedOK":
+                _LOGGER.debug("Received message %s" % data.command)
 
             case AmcCommands.LOGIN_USER:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:

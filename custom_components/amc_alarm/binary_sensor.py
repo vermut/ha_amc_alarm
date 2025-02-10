@@ -73,7 +73,12 @@ class AmcTamperSensor(AmcBaseEntity, BinarySensorEntity):
 
 class AmcZoneSensor(AmcBaseEntity, BinarySensorEntity):
     _amc_group_id = CentralDataSections.ZONES
-    #_attr_device_class = BinarySensorDeviceClass.
+    # https://www.home-assistant.io/integrations/binary_sensor/#device-class
+    # https://sci-git.cs.rptu.de/s_menne19/hassio-core/-/blob/2023.4.0/homeassistant/components/binary_sensor/__init__.py
+    
+    _attr_device_class = "motion"    
+    icon: str = "mdi:motion-sensor"
+    icon_off: str = "mdi:motion-sensor-off"
 
     #@callback
     def _handle_coordinator_update(self) -> None:
@@ -81,6 +86,13 @@ class AmcZoneSensor(AmcBaseEntity, BinarySensorEntity):
         super()._handle_coordinator_update()
         self._attr_is_on = self._amc_entry.states.anomaly == 1
         #self.async_write_ha_state()
+
+    @property
+    def icon(self) -> str | None:
+        """Icon of the sensor."""
+        if self.is_on is False:
+            return self.icon_off
+        return super().icon
 
     #@property
     #def available(self):
