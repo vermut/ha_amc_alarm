@@ -85,7 +85,7 @@ class AmcUserEntry(BaseModel):
 
 
 class AmcUsers(BaseModel):
-    index: Literal[7]
+    index: Literal[7] #CentralDataSections.USERS
     users: dict[str, AmcUserEntry]
 
 
@@ -97,6 +97,7 @@ class AmcCentral(BaseModel):
 
 class AmcCentralResponse(BaseModel):
     status: str
+    amcProtoVer: Optional[int] = None
     realName: Optional[str] = None
     generalStates: Optional[dict] = None
     data: Optional[
@@ -161,9 +162,9 @@ class CentralDataSections:
     OUTPUTS = 3
     SYSTEM_STATUS = 4
     NOTIFICATIONS = 5
-    USERS = 7
+    USERS = 7 #only for amcProtoVer >= 2
 
-    __all__ = [GROUPS, AREAS, OUTPUTS, SYSTEM_STATUS, NOTIFICATIONS]
+    __all__ = [GROUPS, AREAS, OUTPUTS, SYSTEM_STATUS, NOTIFICATIONS, USERS]
 
 
 class SystemStatusDataSections:

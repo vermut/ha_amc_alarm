@@ -121,17 +121,25 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_auth"
             except AmcException as e:
                 errors["base"] = str(e)
-            except Exception:  # pylint: disable=broad-except
+            except Exception as error:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
                 states = AmcStatesParser(api.raw_states())
-                if user_input[CONF_CENTRAL_ID] not in api.raw_states():
-                    errors["base"] = "User login is fine but can't find AMC Central"
-                elif len(str(user_input.get(CONF_USER_PIN))) > 0 and not states.user_by_pin(user_input[CONF_CENTRAL_ID], user_input.get(CONF_USER_PIN)):
-                    errors["base"] = "PIN not valid"
-                else:
-                    unique_id = slugify("AMC %s" % (user_input[CONF_CENTRAL_ID]))
+                centralId = user_input[CONF_CENTRAL_ID]
+                central : AmcCentralResponse = states.raw_states().get(centralId)
+                userPin = user_input.get(CONF_USER_PIN)
+                if not central:
+                    errors["base"] = "User login is fine but can't find AMC Central"                    
+                if userPin and not self.errors: # only for amcProtoVer >= 2
+                    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
+                    if states.users(centralId) is None:
+                        errors["base"] = "User PIN not allowed, users not received"
+                    elif not states.user_by_pin(centralId, userPin):
+                        errors["base"] = "User PIN not valid"
+
+                if not self.errors:
+                    unique_id = slugify("AMC %s" % (centralId))
                     await self.async_set_unique_id(unique_id)
                     if self.source in {SOURCE_REAUTH, SOURCE_RECONFIGURE}:
                         self._abort_if_unique_id_mismatch(reason="account_mismatch")
@@ -139,7 +147,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                         self._abort_if_unique_id_configured()
 
                     if not CONF_TITLE in self._entry_data:
-                        realname = states.real_name(user_input[CONF_CENTRAL_ID])
+                        realname = states.real_name(centralId)
                         self._entry_data[CONF_TITLE] = realname
 
                     return await self.async_step_two()

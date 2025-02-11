@@ -92,15 +92,20 @@ class SimplifiedAmcApi:
 
         await self.command_get_states()
 
-    async def connect_if_disconnected(self):
+    def isConnected(self) -> bool:
         if self._ws_state == ConnectionState.DISCONNECTED:
-            await self.connect()
+            return False
         if not self._websocket or not self._aiohttp_session:
-            await self.connect()
+            return False
         # File "/usr/local/lib/python3.13/site-packages/aiohttp/_websocket/writer.py", line 73, in send_frame
         #    raise ClientConnectionResetError("Cannot write to closing transport")
         #aiohttp.client_exceptions.ClientConnectionResetError: Cannot write to closing transport
         if self._aiohttp_session.closed or self._websocket.closed:
+            return False
+        return True
+
+    async def connect_if_disconnected(self):
+        if not self.isConnected():
             await self.connect()
 
     async def _listen(self) -> None:
@@ -160,7 +165,11 @@ class SimplifiedAmcApi:
             #    self._ws_state = ConnectionState.STOPPED
             #    raise
             except Exception as error:
-                if self._ws_state != ConnectionState.STOPPED:
+                exstr = str(error)
+                if "'NoneType' object has no attribute 'connect'" in exstr:
+                    _LOGGER.debug("Unexpected exception occurred: %s", error)
+                    self._ws_state = ConnectionState.DISCONNECTED
+                if self._ws_state != ConnectionState.STOPPED and self._ws_state != ConnectionState.DISCONNECTED:
                     _LOGGER.exception("Unexpected exception occurred: %s", error)
                     self._ws_state = ConnectionState.STOPPED
 
@@ -382,10 +391,8 @@ class SimplifiedAmcApi:
         )
 
     async def command_set_states(self, group: int, index: int, state: int, userPIN: str):
-        userIdx=None
         user=AmcStatesParser(self.raw_states()).user_by_pin(self._central_id, userPIN) if userPIN else None
-        if user:
-            userIdx=user.index
+        userIdx=user.index if user else None
         await self._send_message(
             AmcCommand(
                 command="setStates",
@@ -466,9 +473,15 @@ class AmcStatesParser:
         
     def users(self, central_id: str) -> dict[str, AmcUserEntry]:
         section : AmcUsers = self._get_section(central_id, CentralDataSections.USERS)
-        return section.users
+        return section.users if section.index == CentralDataSections.USERS else None
     
-    def user_by_pin(self, central_id: str, userPin: str) -> AmcUserEntry:
+    def user_by_pin(self, central_id: str, userPin: str) -> AmcUserEntry:        
+        #_LOGGER.debug("user_by_pin: Pin '%s'" % userPin)
+        if not userPin:
+            return None
         users = self.users(central_id)
-        return users.get(userPin)
+        user = users.get(userPin) if users else None        
+        if not user:
+            _LOGGER.warning("Cannot find User By PIN: Pin '%s'" % userPin)
+        return user
 
