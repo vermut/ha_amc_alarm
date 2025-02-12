@@ -237,12 +237,16 @@ def get_schema_options_two(config: dict = {}) -> dict:
     #if config and not config.get(CONF_SCAN_INTERVAL):
     #    config[CONF_SCAN_INTERVAL] = DEFAULT_SCAN_INTERVAL
     #domains = sorted(PLATFORMS)
-    schema = {        
+    schema = {
         vol.Required(CONF_TITLE, description=get_vol_descr(config, CONF_TITLE)): str,
 
         vol.Required(CONF_SCAN_INTERVAL, description=get_vol_descr(config, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): int,
         vol.Optional(CONF_STATUS_SYSTEM_PREFIX, description=get_vol_descr(config, CONF_STATUS_SYSTEM_PREFIX, "Stato sistema")): str,
         
+        vol.Optional(CONF_STATUS_GROUP_INCLUDED, description=get_vol_descr(config, CONF_STATUS_GROUP_INCLUDED, False)): bool,
+        vol.Optional(CONF_STATUS_GROUP_PREFIX, description=get_vol_descr(config, CONF_STATUS_GROUP_PREFIX, "Stato gruppo")): str,
+        vol.Optional(CONF_STATUS_AREA_INCLUDED, description=get_vol_descr(config, CONF_STATUS_AREA_INCLUDED, False)): bool,
+        vol.Optional(CONF_STATUS_AREA_PREFIX, description=get_vol_descr(config, CONF_STATUS_AREA_PREFIX, "Stato area")): str,
         vol.Optional(CONF_STATUS_ZONE_INCLUDED, description=get_vol_descr(config, CONF_STATUS_ZONE_INCLUDED, True)): bool,
         vol.Optional(CONF_STATUS_ZONE_PREFIX, description=get_vol_descr(config, CONF_STATUS_ZONE_PREFIX, "Stato zona")): str,
         

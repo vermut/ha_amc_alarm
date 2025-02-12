@@ -26,6 +26,10 @@ CONF_FLOW_LAST_VERSION = 1
 
 CONF_STATUS_SYSTEM_PREFIX = "sensor_status_system_prefix"
 
+CONF_STATUS_GROUP_INCLUDED = "sensor_status_group_included"
+CONF_STATUS_GROUP_PREFIX = "sensor_status_group_prefix"
+CONF_STATUS_AREA_INCLUDED = "sensor_status_area_included"
+CONF_STATUS_AREA_PREFIX = "sensor_status_area_prefix"
 CONF_STATUS_ZONE_INCLUDED = "sensor_status_zone_included"
 CONF_STATUS_ZONE_PREFIX = "sensor_status_zone_prefix"
 

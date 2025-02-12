@@ -37,8 +37,12 @@
                     "title": "AMC Central Title",
                     "scan_interval": "Scan Interval (seconds)",
                     "sensor_status_system_prefix": "Sensor System Status Prefix",
+                    "sensor_status_group_included": "Sensor Group Status Included",
+                    "sensor_status_group_prefix": "Sensor Group Status Prefix",                    
+                    "sensor_status_area_included": "Sensor Area Status Included",
+                    "sensor_status_area_prefix": "Sensor Area Status Prefix",                    
                     "sensor_status_zone_included": "Sensor Zone Status Included",
-                    "sensor_status_zone_prefix": "Sensor Zone Status Prefix",
+                    "sensor_status_zone_prefix": "Sensor Zone Status Prefix",                    
                     "output_included": "Output Included",
                     "output_prefix": "Output Prefix"
                 }
