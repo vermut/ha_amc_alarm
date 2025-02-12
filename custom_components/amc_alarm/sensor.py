@@ -37,7 +37,7 @@ async def async_setup_entry(
             _central_id, index
         )
 
-    for central_id in states.raw_states():
+    for central_id in coordinator.central_ids():
         sensors.append(
             AmcSignalSensor(
                 coordinator=coordinator,

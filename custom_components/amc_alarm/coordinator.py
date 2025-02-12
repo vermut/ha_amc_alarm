@@ -139,3 +139,9 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             userPIN = self.get_config(CONF_USER_PIN)
         
         return userPIN
+
+    def central_ids(self) -> list[str]:
+        ids: list[str] = []
+        if self.data and self.api._central_id and self.api._central_id in self.data:
+            ids.append(self.api._central_id)
+        return ids

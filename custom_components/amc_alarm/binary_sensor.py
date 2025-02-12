@@ -35,7 +35,7 @@ async def async_setup_entry(
     def _system_status(_central_id, index):
         return lambda raw_state: AmcStatesParser(raw_state).system_status(_central_id, index)
 
-    for central_id in states.raw_states():
+    for central_id in coordinator.central_ids():
         sensors.extend(
             AmcTamperSensor(
                 coordinator=coordinator,

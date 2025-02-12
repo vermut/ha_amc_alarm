@@ -31,11 +31,11 @@ async def async_setup_entry(
 
     def _area(_central_id, _amc_id):
         return lambda raw_state: AmcStatesParser(raw_state).area(_central_id, _amc_id)
-
-    for central_id in states.raw_states():
-        if coordinator.get_config(CONF_ACP_GROUP_INCLUDED):
-            alarms.extend(
-                AmcAreaGroup(
+    
+    for central_id in coordinator.central_ids():
+        if coordinator.get_config(CONF_ACP_GROUP_INCLUDED):            
+            for x in states.groups(central_id).list:
+                sensor = AmcGroup(
                     coordinator=coordinator,
                     device_info=device_info(states, central_id, coordinator),
                     amc_entry=x,
@@ -43,11 +43,11 @@ async def async_setup_entry(
                     name_prefix=coordinator.get_config(CONF_ACP_GROUP_PREFIX),
                     id_prefix="alarm_group_",
                 )
-                for x in states.groups(central_id).list
-            )
+                alarms.append(sensor)
+
         if coordinator.get_config(CONF_ACP_AREA_INCLUDED):
-            alarms.extend(
-                AmcAreaGroup(
+            for x in states.areas(central_id).list:
+                sensor = AmcArea(
                     coordinator=coordinator,
                     device_info=device_info(states, central_id, coordinator),
                     amc_entry=x,
@@ -55,11 +55,11 @@ async def async_setup_entry(
                     name_prefix=coordinator.get_config(CONF_ACP_AREA_PREFIX),
                     id_prefix="alarm_area_",
                 )
-                for x in states.areas(central_id).list
-            )
+                alarms.append(sensor)
+
         if coordinator.get_config(CONF_ACP_ZONE_INCLUDED):
-            alarms.extend(
-                AmcZone(
+            for x in states.zones(central_id).list:
+                sensor = AmcZone(
                     coordinator=coordinator,
                     device_info=device_info(states, central_id, coordinator),
                     amc_entry=x,
@@ -67,8 +67,7 @@ async def async_setup_entry(
                     name_prefix=coordinator.get_config(CONF_ACP_ZONE_PREFIX),
                     id_prefix="alarm_zone_",
                 )
-                for x in states.zones(central_id).list
-            )
+                alarms.append(sensor)
 
     async_add_entities(alarms, False)
 
@@ -106,7 +105,7 @@ class AmcZone(AmcBaseEntity, AlarmControlPanelEntity):
 class AmcAreaGroup(AmcBaseEntity, AlarmControlPanelEntity):
     _attr_code_arm_required = False
     _attr_supported_features = AlarmControlPanelEntityFeature.ARM_AWAY
-    _amc_group_id = None
+    _amc_group_id : int = None
 
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         api = self.coordinator.api
@@ -137,3 +136,4 @@ class AmcArea(AmcAreaGroup):
 
 class AmcGroup(AmcAreaGroup):
     _amc_group_id = CentralDataSections.GROUPS
+

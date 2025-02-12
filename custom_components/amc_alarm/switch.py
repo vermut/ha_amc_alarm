@@ -25,7 +25,7 @@ async def async_setup_entry(
     def _output(_central_id, amc_id):
         return lambda raw_state: AmcStatesParser(raw_state).output(_central_id, amc_id)
 
-    for central_id in states.raw_states():
+    for central_id in coordinator.central_ids():
         if coordinator.get_config(CONF_OUTPUT_INCLUDED):
             outputs.extend(
                 AmcOutput(
