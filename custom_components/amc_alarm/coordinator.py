@@ -145,3 +145,6 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
         if self.data and self.api._central_id and self.api._central_id in self.data:
             ids.append(self.api._central_id)
         return ids
+
+    def get_id_prefix(self) -> str:
+        return (self.get_config(CONF_TITLE) or "") + "_" + self.get_config(CONF_CENTRAL_ID) + "_"

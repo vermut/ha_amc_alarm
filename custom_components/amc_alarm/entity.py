@@ -46,7 +46,7 @@ class AmcBaseEntity(CoordinatorEntity):
             id_prefix = (id_prefix + "_" + slugify(name_prefix.strip().lower())).strip("_ ")
         if len(id_prefix or "") > 0:
             id_prefix = id_prefix.strip("_ ") + "_"
-        self._attr_unique_id = id_prefix + (
+        self._attr_unique_id = coordinator.get_id_prefix() + id_prefix + (
             str(amc_entry.Id) or f"{type(self).__name__}{amc_entry.index}"
         )
         self._attr_device_info = device_info

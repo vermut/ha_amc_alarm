@@ -107,7 +107,7 @@ class AmcNotification(CoordinatorEntity, SensorEntity):
         self._amc_notifications = amc_notifications
 
         self._attr_name = "Notifications"
-        self._attr_unique_id = str(CentralDataSections.NOTIFICATIONS)
+        self._attr_unique_id = coordinator.get_id_prefix() + str(CentralDataSections.NOTIFICATIONS)
         self._attr_device_info = device_info
 
     @callback
