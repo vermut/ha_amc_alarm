@@ -10,8 +10,8 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady,
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.typing import ConfigType
 from .amc_alarm_api import SimplifiedAmcApi
-from .amc_alarm_api.exceptions import AuthenticationFailed, AmcException
-
+from .amc_alarm_api.exceptions import * # AuthenticationFailed, AmcException
+from .amc_alarm_api.amc_proto import AmcCommands
 from .const import *
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,12 +69,10 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
     async def api_new_data_received_callback(self):
         if self._callback_disabled:
             return
-        _LOGGER.debug("api_new_data_received_callback: eseguo coordinator.async_request_refresh dopo update dei valori")
+        #already logged as Manually updated amc_alarm data
+        #_LOGGER.debug("api_new_data_received_callback: eseguo coordinator.async_request_refresh dopo update dei valori")
         states = self.api.raw_states()
-        #if states and not states[api._central_id].returned:
-        #    states[api._central_id].returned = 1
         self.async_set_updated_data(states)
-        #states_to_return = states
         self._async_request_refresh_from_callback = True
         await self.async_request_refresh()
         self._async_request_refresh_from_callback = False
@@ -91,48 +89,29 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
-        #if states_to_return:
-        #    states = states_to_return
-        #    states_to_return = None
-        #    return states
-        #if states:
-        #    states[api._central_id].returned = 1
         if not states or states[api._central_id].returned:
             _LOGGER.debug("Updating coordinator..")
             self._callback_disabled = True
-            await self.validate_amc_credentials()
             try:
-                #await api.connect_if_disconnected()
-                await api.command_get_states()
+                states = await api.command_get_states_and_return()
+            except AuthenticationFailed as ex:
+                raise ConfigEntryAuthFailed(ex) from ex
+            except AmcCentralNotFoundException as ex:
+                raise ConfigEntryAuthFailed(ex) from ex
+            except AmcException as ex:
+                raise ConfigEntryNotReady("Unable to connect to AMC") from ex
             except Exception as error:
-                self._callback_disabled = False
                 _LOGGER.exception("Unexpected exception occurred in async_wait_for_states: %s" % error)
-                api.disconnect()
-                raise UpdateFailed()
-            
-            for _ in range(900):
-                states = api.raw_states()
-                if states and not states[api._central_id].returned:
-                    break
-                await asyncio.sleep(0.1)
-            
-            self._callback_disabled = False
+                raise UpdateFailed(error)
+            finally:
+                self._callback_disabled = False
 
         if not states:
             raise UpdateFailed()
         states[api._central_id].returned = 1
+        if states[api._central_id].status == AmcCommands.STATUS_NOT_AVAILABLE:
+            raise UpdateFailed(f"Error getting states: {states[api._central_id].status}")
         return states
-
-
-    async def validate_amc_credentials(self) -> None:
-        """Validate amc credential config."""            
-        try:
-            await self.api.connect_if_disconnected()
-        except AuthenticationFailed as ex:
-            raise ConfigEntryAuthFailed(ex) from ex
-        except AmcException as ex:
-            raise ConfigEntryNotReady("Unable to connect to AMC") from ex
-
 
     def get_user_pin(self, userPIN: str) -> str:
         if not userPIN:

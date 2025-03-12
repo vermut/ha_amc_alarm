@@ -25,11 +25,12 @@ from homeassistant.config_entries import (
 
 from .amc_alarm_api import SimplifiedAmcApi
 from .amc_alarm_api.api import AmcStatesParser
-from .amc_alarm_api.exceptions import (
-    ConnectionFailed,
-    AmcException,
-    AuthenticationFailed,
-)
+from .amc_alarm_api.exceptions import * 
+#(
+#    ConnectionFailed,
+#    AmcException,
+#    AuthenticationFailed,
+#)
 from .const import *
 
 _LOGGER = logging.getLogger(__name__)
@@ -110,15 +111,13 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
             )
             errors=self.errors
             try:
-                await api.connect()
-                for _ in range(100):
-                    if api.raw_states():
-                        break
-                    await asyncio.sleep(0.1)
+                await api.command_get_states_and_return()
             except ConnectionFailed:
                 errors["base"] = "cannot_connect"
             except AuthenticationFailed:
                 errors["base"] = "invalid_auth"
+            except AmcCentralNotFoundException:
+                errors["base"] = "User login is fine but can't find AMC Central"
             except AmcException as e:
                 errors["base"] = str(e)
             except Exception as error:  # pylint: disable=broad-except
@@ -130,7 +129,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                 central : AmcCentralResponse = states.raw_states().get(centralId)
                 userPin = user_input.get(CONF_USER_PIN)
                 if not central:
-                    errors["base"] = "User login is fine but can't find AMC Central"                    
+                    errors["base"] = "User login is fine but can't find AMC Central."
                 if userPin and not self.errors: # only for amcProtoVer >= 2
                     #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
                     if states.users(centralId) is None:

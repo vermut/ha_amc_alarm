@@ -37,7 +37,7 @@ async def async_setup_entry(
 
     for central_id in coordinator.central_ids():
         sensors.extend(
-            AmcTamperSensor(
+            AmcSystemStatusSensor(
                 coordinator=coordinator,
                 device_info=device_info(states, central_id, coordinator),
                 amc_entry=x,
@@ -88,13 +88,19 @@ async def async_setup_entry(
     async_add_entities(sensors, False)
 
 
-class AmcTamperSensor(AmcBaseEntity, BinarySensorEntity):
+class AmcSystemStatusSensor(AmcBaseEntity, BinarySensorEntity):
     _amc_group_id = CentralDataSections.SYSTEM_STATUS
     _attr_device_class = BinarySensorDeviceClass.TAMPER
 
     def _handle_coordinator_update(self) -> None:
         super()._handle_coordinator_update()
-        self._attr_is_on = self._amc_entry.states.anomaly == 1
+        dclass = self.device_class if self.device_class else ""        
+        if self.registry_entry and self.registry_entry.device_class:
+            dclass = self.registry_entry.device_class
+        if dclass in [BinarySensorDeviceClass.TAMPER, BinarySensorDeviceClass.PROBLEM]:
+            self._attr_is_on = self._amc_entry.states.anomaly == 1
+        else:
+            self._attr_is_on = self._amc_entry.states.anomaly == 0
 
 
 class AmcZoneSensor(AmcBaseEntity, BinarySensorEntity):
