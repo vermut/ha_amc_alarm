@@ -6,6 +6,6 @@
     "documentation": "https://github.com/davideciarmiello/ha_amc_alarm",
     "iot_class": "cloud_push",
     "issue_tracker": "https://github.com/davideciarmiello/ha_amc_alarm/issues",
-    "version": "0.2.2",
-    "loggers": ["custom_components.amc_alarm"]
+    "loggers": ["custom_components.amc_alarm"],
+    "version": "0.2.2"
 }
