@@ -7,9 +7,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, SERVICE_RELOAD, CONF_SCAN_INTERVAL, CONF_TIMEOUT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady, ConfigEntryError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.typing import ConfigType
 from .amc_alarm_api import SimplifiedAmcApi
+from .amc_alarm_api.api import AmcStatesParser, ConnectionState
 from .amc_alarm_api.exceptions import * # AuthenticationFailed, AmcException
 from .amc_alarm_api.amc_proto import AmcCommands
 from .const import *
@@ -35,6 +37,7 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
         self.hass = hass
         self.entry = entry
         self.amcconfig = (entry.data or {}).copy()
+        self._device_info = None  # sarà creato solo la prima volta
         #self.amcconfig.update(entry.options or {})
         
         #_LOGGER.debug("AMC settings: %s" % self.amcconfig)
@@ -60,6 +63,45 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             userinfo[CONF_CENTRAL_PASSWORD],
             self.api_new_data_received_callback,
         )
+        #self.api.set_task_factory(
+        #    create_task=hass.async_create_task,
+        #    create_future=hass.loop.create_future
+        #)
+        
+    @property
+    def data_parsed(self) -> AmcStatesParser:
+        return AmcStatesParser(self.data)
+
+    @property
+    def device_available(self):
+        if self.api._ws_state == ConnectionState.AUTHENTICATED:
+            #return True
+            if self.api._raw_states_centralstatus_valid and not self.data_parsed.status_is_error(self.api._central_id):
+                return True
+        return False
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        if self._device_info is None:
+            central_id = self.get_config(CONF_CENTRAL_ID)
+            device_title = self.get_config(CONF_TITLE)
+            if not self.api._raw_states_central_valid:
+                return DeviceInfo(
+                    identifiers={(DOMAIN, central_id)},
+                    manufacturer="AMC Elettronica",
+                    name=device_title or central_id
+                )
+            states = AmcStatesParser(self.data)
+            # Creo DeviceInfo solo la prima volta
+            self._device_info = DeviceInfo(
+                identifiers={(DOMAIN, central_id)},
+                manufacturer="AMC Elettronica",
+                model=states.real_name(central_id) + " " + states.model(central_id),
+                name=device_title or states.real_name(central_id),
+                sw_version=states.version(central_id),
+                serial_number=central_id
+            )
+        return self._device_info
 
     def get_config(self, key):
         if key in self.amcconfig:
@@ -71,52 +113,55 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             return
         #already logged as Manually updated amc_alarm data
         #_LOGGER.debug("api_new_data_received_callback: eseguo coordinator.async_request_refresh dopo update dei valori")
-        states = self.api.raw_states()
+        states = self.api.raw_states() or {}
         self.async_set_updated_data(states)
         self._async_request_refresh_from_callback = True
         await self.async_request_refresh()
-        self._async_request_refresh_from_callback = False
+        #self._async_request_refresh_from_callback = False
 
     async def _async_update_data(self):
         api = self.api
         states = api.raw_states()
-        if self._async_request_refresh_from_callback and states:
-            states[api._central_id].returned = 1
-            self._async_request_refresh_from_callback = False
-            return states
+        
         """Fetch data from API endpoint.
 
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
-        """
-        if not states or states[api._central_id].returned:
-            _LOGGER.debug("Updating coordinator..")
-            self._callback_disabled = True
-            try:
+        """    
+        try:
+            if not api._raw_states_central_valid:
+                _LOGGER.debug("Updating coordinator..")
+                self._callback_disabled = True
                 states = await api.command_get_states_and_return()
-            except AuthenticationFailed as ex:
-                raise ConfigEntryAuthFailed(ex) from ex
-            except AmcCentralNotFoundException as ex:
-                raise ConfigEntryAuthFailed(ex) from ex
-            except AmcException as ex:
-                raise ConfigEntryNotReady("Unable to connect to AMC") from ex
-            except Exception as error:
-                _LOGGER.exception("Unexpected exception occurred in async_wait_for_states: %s" % error)
-                raise UpdateFailed(error)
-            finally:
-                self._callback_disabled = False
+            elif self._async_request_refresh_from_callback:
+                self._async_request_refresh_from_callback = False
+                states = states or {}
+            else:
+                api._msg_quee_get_states = True
+                await self.api._send_msg_quee()
+            if api._ws_state == ConnectionState.STOPPED and api._ws_state_stop_exeception:
+                raise api._ws_state_stop_exeception
+        except AuthenticationFailed as ex:
+            raise ConfigEntryAuthFailed(ex) from ex
+        except AmcCentralNotFoundException as ex:
+            raise ConfigEntryAuthFailed(ex) from ex
+        except AmcException as ex:
+            raise ConfigEntryNotReady(ex) from ex
+        except Exception as error:
+            _LOGGER.exception("Unexpected exception occurred in async_wait_for_states: %s" % error)
+            raise UpdateFailed(error)
+        finally:
+            self._callback_disabled = False
 
         if not states:
             raise UpdateFailed()
-        states[api._central_id].returned = 1
-        if states[api._central_id].status == AmcCommands.STATUS_NOT_AVAILABLE:
-            raise UpdateFailed(f"Error getting states: {states[api._central_id].status}")
         return states
 
     def get_user_pin(self, userPIN: str) -> str:
         if not userPIN:
-            userPIN = self.get_config(CONF_USER_PIN)
-        
+            userIdx = self.get_config(CONF_USER_INDEX)
+            if userIdx > -1:
+                userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, userIdx)
         return userPIN
 
     def central_ids(self) -> list[str]:

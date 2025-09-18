@@ -10,6 +10,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady,
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers import issue_registry as ir
 from .coordinator import AmcDataUpdateCoordinator
 from .const import *
 
@@ -30,6 +31,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if hass.data.get(DOMAIN) is None:
         hass.data.setdefault(DOMAIN, {})
 
+    if entry.version < CONF_CURR_VERSION:
+        _LOGGER.error("Error async_setup_entry config entry from version %s", entry.version)
+        return False
+
     coordinator = AmcDataUpdateCoordinator(hass, entry=entry)
 
     #if coordinator.get_config(CONF_FLOW_VERSION) != CONF_FLOW_LAST_VERSION:
@@ -42,6 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up all platforms for this device/entry.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    #hass.config_entries.async_setup_platforms(entry, PLATFORMS)
 
     # Reload entry when its updated.
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -85,3 +91,38 @@ async def add_services(hass: HomeAssistant):
         _handle_reload,
     )
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Gestisce la migrazione dei config entries quando VERSION cambia."""
+    _LOGGER.warning("Migrating config entry from version %s", entry.version)
+##
+    ### invece di migrare, avvia il wizard
+    ##hass.async_create_task(
+    ##    hass.config_entries.flow.async_init(
+    ##        DOMAIN,
+    ##        context={"source": "user"},
+    ##        data={}
+    ##    )
+    ##)
+    #return True
+
+    if entry.version > CONF_CURR_VERSION:
+        return False
+
+    if entry.version == 1:
+        new_data = {**entry.data}
+        if CONF_USER_PIN in new_data:
+            coordinator = AmcDataUpdateCoordinator(hass, entry=entry)            
+            await coordinator.async_config_entry_first_refresh()
+            await coordinator.api.disconnect()
+            pin = new_data.pop(CONF_USER_PIN)
+            user = coordinator.data_parsed.user_by_pin(coordinator.api._central_id, pin)
+            new_data[CONF_USER_INDEX] = user.index
+        hass.config_entries.async_update_entry(entry, data=new_data, version=2)
+        _LOGGER.info("Migration to version %s successful", entry.version)
+        #return True
+
+    #hass.config_entries.async_update_entry(entry, data=new_data, version=CONF_CURR_VERSION)
+    #_LOGGER.info("Migration to version %s successful", entry.version)
+
+#    # se la versione non è gestita → errore
+    return True

@@ -82,6 +82,7 @@ class AmcStatusEntry(BaseModel):
 class AmcUserEntry(BaseModel):
     index: Optional[int] = None
     name: Optional[str] = None
+    pin: Optional[str] = None
 
 
 class AmcUsers(BaseModel):
@@ -96,6 +97,7 @@ class AmcCentral(BaseModel):
 
 
 class AmcCentralResponse(BaseModel):
+    statusID: Optional[int] = None
     status: str
     amcProtoVer: Optional[int] = None
     realName: Optional[str] = None

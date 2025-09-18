@@ -11,7 +11,7 @@ from .coordinator import AmcDataUpdateCoordinator
 from .amc_alarm_api.amc_proto import CentralDataSections
 from .amc_alarm_api.api import AmcStatesParser
 from .const import *
-from .entity import device_info, AmcBaseEntity
+from .entity import AmcBaseEntity
 
 
 async def async_setup_entry(
@@ -20,28 +20,26 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: AmcDataUpdateCoordinator = entry.runtime_data
-    states = AmcStatesParser(coordinator.data)
+    states = coordinator.data_parsed
     sensors: list[BinarySensorEntity] = []
 
     def _zone(_central_id, _amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).zone(_central_id, _amc_id)
+        return lambda: coordinator.data_parsed.zone(_central_id, _amc_id)
 
     def _group(_central_id, _amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).group(_central_id, _amc_id)
+        return lambda: coordinator.data_parsed.group(_central_id, _amc_id)
 
     def _area(_central_id, _amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).area(_central_id, _amc_id)
+        return lambda: coordinator.data_parsed.area(_central_id, _amc_id)
 
     def _system_status(_central_id, index):
-        return lambda raw_state: AmcStatesParser(raw_state).system_status(_central_id, index)
+        return lambda: coordinator.data_parsed.system_status(_central_id, index)
 
     for central_id in coordinator.central_ids():
         sensors.extend(
             AmcSystemStatusSensor(
                 coordinator=coordinator,
-                device_info=device_info(states, central_id, coordinator),
-                amc_entry=x,
-                attributes_fn=_system_status(central_id, x.index),
+                amc_entry_fn=_system_status(central_id, x.index),
                 name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
                 id_prefix="system_status_",
             )
@@ -52,9 +50,7 @@ async def async_setup_entry(
             for x in states.groups(central_id).list:
                 sensor = AmcZoneSensor(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_group(central_id, x.Id),
+                    amc_entry_fn=_group(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_STATUS_GROUP_PREFIX),
                     id_prefix="group_status_",
                 )
@@ -64,9 +60,7 @@ async def async_setup_entry(
             for x in states.areas(central_id).list:
                 sensor = AmcZoneSensor(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_area(central_id, x.Id),
+                    amc_entry_fn=_area(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_STATUS_AREA_PREFIX),
                     id_prefix="area_status_",
                 )
@@ -76,9 +70,7 @@ async def async_setup_entry(
             for x in states.zones(central_id).list:
                 sensor = AmcZoneSensor(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_zone(central_id, x.Id),
+                    amc_entry_fn=_zone(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_STATUS_ZONE_PREFIX),
                     id_prefix="zone_status_",
                 )
@@ -94,7 +86,7 @@ class AmcSystemStatusSensor(AmcBaseEntity, BinarySensorEntity):
 
     def _handle_coordinator_update(self) -> None:
         super()._handle_coordinator_update()
-        dclass = self.device_class if self.device_class else ""        
+        dclass = self.device_class if self.device_class else ""
         if self.registry_entry and self.registry_entry.device_class:
             dclass = self.registry_entry.device_class
         if dclass in [BinarySensorDeviceClass.TAMPER, BinarySensorDeviceClass.PROBLEM]:

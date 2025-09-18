@@ -10,7 +10,7 @@ from .coordinator import AmcDataUpdateCoordinator
 from .amc_alarm_api.amc_proto import CentralDataSections
 from .amc_alarm_api.api import AmcStatesParser
 from .const import *
-from .entity import device_info, AmcBaseEntity
+from .entity import AmcBaseEntity
 
 
 async def async_setup_entry(
@@ -19,20 +19,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: AmcDataUpdateCoordinator = entry.runtime_data
-    states = AmcStatesParser(coordinator.data)
+    states = coordinator.data_parsed
     outputs: list[SwitchEntity] = []
 
     def _output(_central_id, amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).output(_central_id, amc_id)
+        return lambda: coordinator.data_parsed.output(_central_id, amc_id)
 
     for central_id in coordinator.central_ids():
         if coordinator.get_config(CONF_OUTPUT_INCLUDED):
             outputs.extend(
                 AmcOutput(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_output(central_id, x.Id),
+                    amc_entry_fn=_output(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_OUTPUT_PREFIX),
                     id_prefix="output",
                 )

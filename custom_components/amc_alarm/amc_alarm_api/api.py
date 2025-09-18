@@ -27,6 +27,9 @@ from .exceptions import * #AmcException, ConnectionFailed, AuthenticationFailed,
 
 _LOGGER = logging.getLogger(__name__)
 
+# https://github.com/home-assistant-libs/zwave-js-server-python/blob/main/zwave_js_server/client.py
+# https://github.com/Kane610/deconz/blob/master/pydeconz/websocket.py
+
 
 class ConnectionState(Enum):
     STARTING = 0
@@ -46,6 +49,7 @@ class CommandMessageInfo():
     key : str = None 
     error: Exception = None
     result = None
+    last_message_data : str = None 
 
     def set_ok(self, res = None):
         self.result = res
@@ -54,6 +58,13 @@ class CommandMessageInfo():
         self.error = err if err else self.error
         self.state = CommandState.KO
 
+    def as_dict(self):
+        return {
+            "key": self.key,
+            "last_message_data": safe_json_loads(self.last_message_data),
+            "state": getattr(self.state, "name", str(self.state)),  # se enum → name
+            "error": str(self.error) if self.error else None,
+        }
 
 class SimplifiedAmcApi:
     MAX_RETRY_DELAY = 600  # 10 min
@@ -65,11 +76,14 @@ class SimplifiedAmcApi:
         central_id,
         central_username,
         central_password,
+        #central_pin,
         async_state_updated_callback=None,
     ):
         self._messages: dict[str, CommandMessageInfo] = {}
         self._raw_states: dict[str, AmcCentralResponse] = {}
         self._raw_states_central_valid : bool = False
+        self._raw_states_centralstatus_valid : bool = False
+        self._send_message_retrying : bool = False
 
         self._ws_url = "wss://service.amc-cloud.com/ws/client"
         self._login_email = login_email
@@ -77,6 +91,7 @@ class SimplifiedAmcApi:
         self._central_id = central_id
         self._central_username = central_username
         self._central_password = central_password
+        self._central_pin = None
 
         self._listen_task = None
         self._ws_state = ConnectionState.DISCONNECTED
@@ -90,15 +105,33 @@ class SimplifiedAmcApi:
         self._callback_get_states_disabled : bool = False
         self._last_login_date = None
 
+        self.raw_states_json_model = None
+
+        self._msg_quee_login : bool = False
+        self._msg_quee_get_states : bool = False
+        
+        # default asyncio puro
+        self._create_task = asyncio.create_task
+        self._create_future = asyncio.get_event_loop().create_future
+
+    def set_task_factory(self, create_task, create_future):
+        """Override quando sei dentro Home Assistant"""
+        #client.set_task_factory(
+        #    create_task=hass.async_create_task,
+        #    create_future=hass.loop.create_future
+        #)
+        self._create_task = create_task
+        self._create_future = create_future
+
+
     async def connect(self):
         await self.ensure_logged()
         if not self._raw_states_central_valid:
             await self.command_get_states_and_return()
-            
-    async def ensure_logged(self):
+
+    async def _login_if_required(self) -> CommandMessageInfo:
         message = self._get_message_info(AmcCommands.LOGIN_USER)
         if self._ws_state != ConnectionState.STOPPED:
-
             #se sto nella pausa della connessione, devo aspettare
             if self._ws_state_disconnecting and self._ws_state != ConnectionState.STOPPED and self._listen_task and not self._listen_task.done():
                 await asyncio.sleep(1)
@@ -106,15 +139,19 @@ class SimplifiedAmcApi:
                     raise asyncio.TimeoutError("Waiting timeout for server connection")
                     
             if not self._listen_task or self._listen_task.done():
-                self._ws_state = ConnectionState.STARTING
-                self._listen_task = asyncio.create_task(self._listen())
+                await self._change_state(ConnectionState.STARTING)
+                #loop = asyncio.get_event_loop()
+                self._listen_task = self._create_task(self._listen())
             elif self._ws_state == ConnectionState.CONNECTED:
                 message = await self._login()
-            elif self._last_login_date + timedelta(minutes=30) < datetime.now():
-                _LOGGER.debug("Executing new login after 30 minutes")
-                message = await self._login()
-        await self._get_message_info_result(message)
+            #elif self._last_login_date + timedelta(minutes=30) < datetime.now():
+            #    _LOGGER.debug("Executing new login after 30 minutes")
+            #    message = await self._login()
+        return message
 
+    async def ensure_logged(self):
+        message = await self._login_if_required()
+        await self._get_message_info_result(message)
 
     async def command_get_states_and_return(self) -> dict[str, AmcCentralResponse]:
         await self.ensure_logged()
@@ -130,7 +167,7 @@ class SimplifiedAmcApi:
 
     async def disconnect(self):
         _LOGGER.debug("Disconnecting")
-        self._ws_state = ConnectionState.STOPPED
+        await self._change_state(ConnectionState.STOPPED)
         if self._listen_task and not self._listen_task.done():
             self._listen_task.cancel()
             try:
@@ -143,7 +180,24 @@ class SimplifiedAmcApi:
         if self._aiohttp_session:
             await self._aiohttp_session.close()
             self._aiohttp_session = None
-        self._ws_state = ConnectionState.DISCONNECTED
+        await self._change_state(ConnectionState.DISCONNECTED)
+
+    async def _listen_start(self) -> None:
+        if self._ws_state != ConnectionState.STOPPED:
+            #se sto nella pausa della connessione, devo aspettare
+            #if self._ws_state_disconnecting and self._ws_state != ConnectionState.STOPPED and self._listen_task and not self._listen_task.done():
+            #    await asyncio.sleep(1)
+            #    if self._ws_state_disconnecting and self._ws_state != ConnectionState.STOPPED and self._listen_task and not self._listen_task.done():
+            #        raise asyncio.TimeoutError("Waiting timeout for server connection")
+                    
+            if not self._listen_task or self._listen_task.done():
+                await self._change_state(ConnectionState.STARTING)
+                self._listen_task = self._create_task(self._listen())
+            #elif self._ws_state == ConnectionState.CONNECTED:
+            #    message = await self._login()
+            #elif self._last_login_date + timedelta(minutes=30) < datetime.now():
+            #    _LOGGER.debug("Executing new login after 30 minutes")
+            #    message = await self._login()
 
     async def _listen(self) -> None:
         """Listen to messages"""
@@ -154,59 +208,64 @@ class SimplifiedAmcApi:
 
     async def _running(self) -> None:
         self._ws_state_disconnecting = False
-        self._ws_state = ConnectionState.STARTING        
+        await self._change_state(ConnectionState.STARTING)
+        if not self._aiohttp_session:
+            self._aiohttp_session = aiohttp.ClientSession()
         try:
-            async with aiohttp.ClientSession() as session:
-                self._aiohttp_session = session
-                _LOGGER.debug("Logging into %s" % self._ws_url)
-                async with session.ws_connect(
-                    self._ws_url, heartbeat=15, autoping=True
-                ) as ws_client:
-                    self._ws_state = ConnectionState.CONNECTED
-                    self._websocket = ws_client
-                    await self._login()
+            #_LOGGER.debug("Logging into %s" % self._ws_url)
+            async with self._aiohttp_session.ws_connect(
+                self._ws_url, heartbeat=5, autoping=True
+            ) as ws_client:
+                self._websocket = ws_client
+                _LOGGER.debug("Connected to websocket %s" % self._ws_url)
+                await self._change_state(ConnectionState.CONNECTED)
 
-                    message: WSMessage
-                    async for message in ws_client:
-                        if self._ws_state == ConnectionState.STOPPED:
-                            break
+                self._msg_quee_get_states = True
+                if not self._sessionToken:
+                    self._msg_quee_login = True
+                await self._send_msg_quee()
 
-                        if message.type == aiohttp.WSMsgType.ERROR:
-                            _LOGGER.error(f"Error received from WS server: {message}")
-                            self._cancel_pending_messages(Exception(f"Error received from WS server: {message}"))
-                            break
+                message: WSMessage
+                async for message in ws_client:
+                    if self._ws_state == ConnectionState.STOPPED:
+                        break
 
-                        if message.type == aiohttp.WSMsgType.CLOSED:
-                            _LOGGER.warning("AIOHTTP websocket connection closed")
-                            self._cancel_pending_messages(Exception("AIOHTTP websocket connection closed"))
-                            break
+                    if message.type == aiohttp.WSMsgType.ERROR:
+                        _LOGGER.warning(f"Error received from WS server: {message}")
+                        #self._cancel_pending_messages(Exception(f"Error received from WS server: {message}"))
+                        break
 
-                        if message.type == aiohttp.WSMsgType.TEXT:
-                            _LOGGER.debug("Websocket received data: %s", message.data)
-                            try:
-                                await self._process_message(message)
-                            except Exception as error:                                
-                                _LOGGER.exception("Error processing message data: %s, data=%s" % (error, message.data))
+                    if message.type == aiohttp.WSMsgType.CLOSED:
+                        _LOGGER.warning("AIOHTTP websocket connection closed")
+                        self._cancel_pending_messages(Exception("AIOHTTP websocket connection closed"))
+                        break
 
-                        if self._ws_state == ConnectionState.STOPPED:
-                            break
+                    if message.type == aiohttp.WSMsgType.TEXT:
+                        _LOGGER.debug("Websocket received data: %s", message.data)
+                        try:
+                            await self._process_message(message)
+                        except Exception as error:                                
+                            _LOGGER.exception("Error processing message data: %s, data=%s" % (error, message.data))
 
+                    if self._ws_state == ConnectionState.STOPPED or self._ws_state == ConnectionState.DISCONNECTED:
+                        break
+                    
+                    await self._send_msg_quee()
+                        
         except asyncio.CancelledError:
             pass
         except aiohttp.ClientResponseError as error:
             self._cancel_pending_messages(error)
             _LOGGER.error("Unexpected response received from server : %s", error)
-            self._ws_state = ConnectionState.DISCONNECTED
+            await self._change_state(ConnectionState.DISCONNECTED)
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.client_exceptions.ClientConnectionResetError) as error:
             self._cancel_pending_messages(error)
-            retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
+            retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)            
             self._failed_attempts += 1
-            _LOGGER.error(
-                "Websocket connection failed, retrying in %ds: %s",
-                retry_delay,
-                error,
-            )
-            self._ws_state = ConnectionState.DISCONNECTED
+            if self._failed_attempts <= 2:
+                retry_delay = 0
+            _LOGGER.error("Websocket connection failed, retrying in %ds: %s", retry_delay, error)
+            await self._change_state(ConnectionState.DISCONNECTED)
             await asyncio.sleep(retry_delay)
         except Exception as error:
             self._cancel_pending_messages(error)
@@ -218,14 +277,14 @@ class SimplifiedAmcApi:
                 retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
                 self._failed_attempts += 1
                 _LOGGER.exception("Unexpected exception occurred, retrying in %ds: %s", retry_delay, error)
-                self._ws_state = ConnectionState.DISCONNECTED
+                await self._change_state(ConnectionState.DISCONNECTED)
                 await asyncio.sleep(retry_delay)
                 
         finally:
             if self._websocket:
                 await self._websocket.close()
             if self._ws_state != ConnectionState.STOPPED and self._ws_state != ConnectionState.DISCONNECTED:
-                self._ws_state = ConnectionState.DISCONNECTED
+                await self._change_state(ConnectionState.DISCONNECTED)
             self._ws_state_disconnecting = False
 
     def _cancel_pending_messages(self, error : Exception):
@@ -234,6 +293,18 @@ class SimplifiedAmcApi:
             message = self._messages[id]
             if message.state == CommandState.STARTED:
                 message.set_ko(error)
+
+    async def _send_msg_quee(self):
+        if self._msg_quee_login or not self._sessionToken:
+            if self._ws_state == ConnectionState.CONNECTED or self._ws_state == ConnectionState.AUTHENTICATED:
+                await self._login()
+                self._msg_quee_login = False
+            return
+        if self._msg_quee_get_states and self._ws_state == ConnectionState.AUTHENTICATED:
+            await self.command_get_states()
+            self._msg_quee_get_states = False
+
+
 
     async def _process_message(self, message):
         try:
@@ -246,30 +317,32 @@ class SimplifiedAmcApi:
             return
 
         status = self._get_message_info(data.command)
+        status.last_message_data = message.data
 
         match data.command:
             case AmcCommands.CHECK_CENTRALS:
-                _LOGGER.debug("Received message %s" % data.command)        
-                self._ws_state = ConnectionState.CONNECTED
-                await self.ensure_logged()
-                await self.command_get_states()
+                _LOGGER.debug("Received message %s" % data.command)
+                self._msg_quee_get_states = True
+                status.set_ok(data.command)
             case "updateVideoList":
                 _LOGGER.debug("Received message %s" % data.command)
+                status.set_ok(data.command)
             case "visitedOK":
                 _LOGGER.debug("Received message %s" % data.command)
+                status.set_ok(data.command)
 
             case AmcCommands.LOGIN_USER:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:
                     _LOGGER.debug("Authorized")
-                    self._ws_state = ConnectionState.AUTHENTICATED
                     self._sessionToken = data.user.token
                     self._failed_attempts = 0
+                    await self._change_state(ConnectionState.AUTHENTICATED)
                     status.set_ok(data.user.token)
                 else:
                     _LOGGER.warning("Authorization failure: %s, data=%s" % (data.status, message.data))
-                    status.set_ko(AuthenticationFailed(data.status or message.data))
-                    self._ws_state_stop_exeception = status.error
-                    self._ws_state = ConnectionState.STOPPED
+                    self._ws_state_stop_exeception = AuthenticationFailed(data.status or message.data)
+                    await self._change_state(ConnectionState.STOPPED)
+                    status.set_ko(self._ws_state_stop_exeception)                    
 
 
             case AmcCommands.GET_STATES:
@@ -278,59 +351,150 @@ class SimplifiedAmcApi:
                 if data.status == AmcCommands.STATUS_ERROR and data.message == AmcCommands.MESSAGE_PLEASE_LOGIN:
                     if self._last_login_date + timedelta(seconds=15) < datetime.now():
                         _LOGGER.debug("Logging after received request to relogin: %s" % (message.data))
-                        self._ws_state = ConnectionState.CONNECTED
-                        await self.ensure_logged()
-                        await self.command_get_states()
+                        await self._change_state(ConnectionState.CONNECTED)
+                        self._msg_quee_login = True
+                        self._msg_quee_get_states = True
+                    else:
+                        await self._change_state(ConnectionState.DISCONNECTED)
                     return
 
                 if not self._central_id in data.centrals:
                     _LOGGER.warning("GetStates failure, central not found: %s, data=%s" % (data.status, message.data))
-                    status.set_ko(AmcCentralNotFoundException())
-                    self._ws_state_stop_exeception = status.error
-                    self._ws_state = ConnectionState.STOPPED
+                    self._ws_state_stop_exeception = AmcCentralNotFoundException("User login is fine but can't find AMC Central.")
+                    await self._change_state(ConnectionState.STOPPED)
+                    status.set_ko(self._ws_state_stop_exeception)
                     return
+                
+                if self._central_pin and data.status == AmcCommands.STATUS_OK:  # only for amcProtoVer >= 2
+                    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
+                    states = AmcStatesParser(data.centrals)
+                    err = None
+                    if states.users(centralId) is None:
+                        err = AuthenticationFailed("User PIN not allowed, users not received")
+                    elif not states.user_by_pin(centralId, userPin):
+                        err = AuthenticationFailed("User PIN not valid")
+                    if err:
+                        self._ws_state_stop_exeception = err
+                        await self._change_state(ConnectionState.STOPPED)
+                        status.set_ko(self._ws_state_stop_exeception)
+                        return
+
 
                 if data.status == AmcCommands.STATUS_OK:
+                    self.raw_states_json_model = json.loads(message.data)
                     self._raw_states = data.centrals
                     self._raw_states_central_valid = True
+                    self._raw_states_centralstatus_valid = True
+                    self._failed_attempts = 0
                     status.set_ok(data.centrals)
-                    if self._callback and not self._callback_get_states_disabled:
-                        self._raw_states[self._central_id].returned = 0
-                        await self._callback()
+                    await self._data_changed()
                 elif data.status == AmcCommands.STATUS_KO:
                     #{"command":"getStates","status":"ko","layout":null,"centrals":{"10EF60834A5436323003323338310000":{"statusID":-1,"status":"not available"}}}
+                    statusID_new = data.centrals[self._central_id].statusID if self._central_id in data.centrals else None
                     status_new = data.centrals[self._central_id].status if self._central_id in data.centrals else None
                     status_old = self._raw_states[self._central_id].status if self._central_id in self._raw_states else None
                     status.set_ko(AmcCentralStatusErrorException("Central " + status_new) if status_new else AmcException(message.data))
+                    if status_new:
+                        self._raw_states_centralstatus_valid = True
                     if status_new != status_old:
                         _LOGGER.debug("Error getting states (%s): %s" % (status_new, message.data))
                         if not self._central_id in self._raw_states:
                             self._raw_states = data.centrals
+                            self.raw_states_json_model = json.loads(message.data)
+                        self.raw_states_json_model["centrals"][self._central_id]["statusID"] = statusID_new
+                        self.raw_states_json_model["centrals"][self._central_id]["status"] = status_new
+                        self._raw_states[self._central_id].statusID = statusID_new
                         self._raw_states[self._central_id].status = status_new
-                        if self._callback and not self._callback_get_states_disabled:
-                            self._raw_states[self._central_id].returned = 0
-                            await self._callback()
-                    
-                #    _LOGGER.debug("Error getting states (not available): %s" % data.centrals)
-                    #await self.disconnect()
+                        await self._data_changed()
                 else:
                     status.set_ko(AmcException(message.data))
                     _LOGGER.warning("Error getting states: %s, data=%s" % (data.centrals, message.data))
                     raise AmcException(data.centrals or message.data)
             case AmcCommands.APPLY_PATCH:
                 if not self._raw_states_central_valid:
-                    await self.command_get_states()
-                    return
+                    self._msg_quee_get_states = True
+                    return            
                 try:
-                    for patch in data.patch:
-                        await self._process_message_patch(patch)
-                except Exception as e:
-                    _LOGGER.warning("Can't process patch from server: %s, patch=%s, data=%s" % (e, patch, message.data))
-                if self._callback:
-                    self._raw_states[self._central_id].returned = 0
-                    await self._callback()
+                    path_json_model = json.loads(message.data)
+                    for patch in path_json_model["patch"]:
+                        try:
+                            self.raw_states_json_model = await self._process_json_patch(self.raw_states_json_model, patch)
+                        except Exception as e:
+                            _LOGGER.warning("Can't process patch from server: %s, patch=%s, data=%s" % (e, patch, message.data))
+                            self._msg_quee_get_states = True
+                    states_json = json.dumps(self.raw_states_json_model)
+                    states_data = AmcCommandResponse.model_validate_json(states_json, strict=False)
+                    #_LOGGER.warning("Applied patch: patch=%s, data=%s, old_data=%s" % (message.data, states_json, self.message_getstates_ok_data))
+                    self._raw_states = states_data.centrals
+                    await self._data_changed()
+                except Exception as ee:
+                    _LOGGER.warning("Can't process patch from server: %s, data=%s" % (ee, message.data))
+                    self._msg_quee_get_states = True                
             case _:
                 _LOGGER.warning("Unknown command received from server : %s, data=%s" % (data, message.data))
+
+    async def _change_state(self, wsstate):
+        if self._ws_state != wsstate:
+            self._ws_state = wsstate
+            if self._callback and not self._callback_get_states_disabled:
+                await self._callback()
+
+    async def _data_changed(self):
+        if self._callback and not self._callback_get_states_disabled:
+            if self._central_id in self._raw_states:
+                self._raw_states[self._central_id].returned = 0
+            await self._callback()
+
+
+    async def _process_json_patch(self, data, p):
+        """Applica una lista di patch JSON su un dict senza jsonpatch."""
+
+        #esempi:
+        # { "op": "replace", "path": "/centrals/10EF60834A5436323003323338310000/data/2/list/19/states", "value": {"redalert":0,"progress":0,"bit_showHide":1,"bit_on":1,"bit_exludable":1,"bit_armed":0,"anomaly":1,"bit_opened":1,"bit_notReady":0,"video":0} }
+        # { "op": "add", "path": "/centrals/10EF60834A5436323003323338310000/data/2/list/23/notifications/0", "value": {"command":"notification","name":"Inibizione balcone tamper","category":4,"serverDate":"Thu, 18 Sep 2025 10:10:33 +0200","centralDate":"2025-09-17 10:13:43 +0000","centralGroup":2,"centralIndex":23,"states":{"anomaly":1,"bit_showHide":1,"redalert":1}} }
+        # { "op": "add", "path": "/centrals/10EF60834A5436323003323338310000/data/5/list/0", "value": {"command":"notification","name":"Inibizione balcone tamper","category":4,"serverDate":"Thu, 18 Sep 2025 10:10:33 +0200","centralDate":"2025-09-17 10:13:43 +0000","centralGroup":2,"centralIndex":23,"states":{"anomaly":1,"bit_showHide":1,"redalert":1}} }
+        # { "op": "replace", "path": "/centrals/10EF60834A5436323003323338310000/data/5/unvisited", "value": "8" }
+
+        #for p in patch:
+        op = p["op"]
+        path = p["path"].strip("/").split("/")
+        value = p.get("value")
+
+        # naviga nell'albero fino al penultimo nodo
+        target = data
+        for key in path[:-1]:
+            if key.isdigit():
+                key = int(key)
+                if isinstance(target, list):
+                    key = _find_pos_by_item_index(target, key)
+            target = target[key]
+
+        last_key = path[-1]
+        if last_key.isdigit():
+            last_key = int(last_key)
+            if op in ("replace", "remove") and isinstance(target, list):
+                key = _find_pos_by_item_index(target, key)
+
+        # operazioni base
+        if op == "add" and isinstance(target, list) and isinstance(last_key, int):
+            target.insert(last_key, value)
+        elif op == "add" or op == "replace":
+            if op == "replace" and isinstance(target[last_key], dict):
+                new_value = target[last_key]                    
+                new_value.update(value)
+                value = new_value
+            target[last_key] = value
+        elif op == "remove":
+            if isinstance(target, list) and isinstance(last_key, int):
+                target.pop(last_key)
+            else:
+                target.pop(last_key, None)
+
+        else:
+            raise ValueError(f"Operazione non supportata: {op}")
+        
+        return data
+
 
     async def _process_message_patch(self, patch):
         is_add = patch.op == "add"
@@ -433,7 +597,7 @@ class SimplifiedAmcApi:
 
     async def _login(self) -> CommandMessageInfo:
         self._sessionToken = None
-        self._ws_state = ConnectionState.CONNECTED
+        await self._change_state(ConnectionState.CONNECTED)
         self._last_login_date = datetime.now()
         _LOGGER.info("Logging in with email: %s", self._login_email)
         login_message = AmcCommand(
@@ -443,7 +607,7 @@ class SimplifiedAmcApi:
         return await self._send_message(login_message)
 
     async def _get_message_info_result(self, message: CommandMessageInfo, timeout : int = 30):        
-        for _ in range(timeout * 10):  # Wait 30 secs
+        for _ in range(timeout):  # Wait 30 secs
             if self._ws_state in [
                 ConnectionState.STOPPED,
             ]:
@@ -452,9 +616,9 @@ class SimplifiedAmcApi:
                 return message.result
             if message.state == CommandState.KO:
                 break
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(1)
         if message.error:
-            raise message.error        
+            raise message.error
         if self._ws_state_stop_exeception:
             raise self._ws_state_stop_exeception
         if self._listen_task.done() and issubclass(
@@ -477,12 +641,33 @@ class SimplifiedAmcApi:
             status = self._get_message_info(msg.command)
         status.state = CommandState.STARTED
         status.error = None
+        payload = ""
         try:
             if self._sessionToken:
                 msg.token = self._sessionToken
             payload = msg.json(exclude_none=True, exclude_unset=True)
             _LOGGER.debug("Websocket sending data: %s", payload)
             await self._websocket.send_str(payload)
+        except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.client_exceptions.ClientConnectionResetError) as error:
+            if not self._send_message_retrying:
+                try:
+                    self._send_message_retrying = True
+                    # for handle raise ClientConnectionResetError("Cannot write to closing transport")                    
+                    _LOGGER.info("Websocket send failed. Retry to send data: %s - Error: %s", payload, error)
+                    await asyncio.sleep(0.5)
+                    await self.ensure_logged()
+                    await self._send_message(msg, status)
+                    return status
+                except Exception as error1:
+                    _LOGGER.info("Websocket connection failed in _send_message. Resend failed...: %s", error1)
+                    pass
+                finally:
+                    await asyncio.sleep(0.2)
+                    self._send_message_retrying = False
+                    
+            status.state = CommandState.KO
+            status.error = error
+            raise error
         except Exception as error:
             status.state = CommandState.KO
             status.error = error
@@ -580,9 +765,21 @@ class AmcStatesParser:
     def status(self, central_id: str) -> str:
         return self._raw_states[central_id].status
 
+    def status_is_error(self, central_id: str) -> bool:
+        status = self._raw_states[central_id].statusID
+        if not status:
+            return True
+        if status == 1:
+            return False
+        return True
+
     def model(self, central_id: str) -> str:
         # Assuming from status
         return self._raw_states[central_id].status.split(" ")[-1]
+
+    def version(self, central_id: str) -> str:
+        # Assuming from status
+        return self._raw_states[central_id].status.split("/")[-1]
         
     def users(self, central_id: str) -> dict[str, AmcUserEntry]:
         section : AmcUsers = self._get_section(central_id, CentralDataSections.USERS)
@@ -596,5 +793,39 @@ class AmcStatesParser:
         user = users.get(userPin) if users else None        
         if not user:
             _LOGGER.warning("Cannot find User By PIN: Pin '%s'" % userPin)
+        else:
+            user.pin = userPin
         return user
+        
+    def user_pin_by_index(self, central_id: str, userIndex: int) -> AmcUserEntry:        
+        #_LOGGER.debug("user_by_pin: Pin '%s'" % userPin)
+        if not userIndex or userIndex < 0:
+            return None        
+        users = self.users(central_id)        
+        if users:
+            for key, value in users.items():
+                if value.index == userIndex:
+                    return key                    
+        _LOGGER.warning("Cannot find User By Index: Index '%s'" % userIndex)
+        return None
+
+
+def safe_json_loads(value: str):
+    """Prova a convertire la stringa JSON in dict, 
+    altrimenti ritorna la stringa originale."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return value
+
+def _find_pos_by_item_index(lst, index_value) -> int | None:
+    """Cerca in lst l'elemento con campo 'index' == index_value e ritorna la posizione, altrimenti None."""
+    for i, item in enumerate(lst):
+        if isinstance(item, dict):
+            # confronto flessibile su stringa/int
+            if item.get("index") is not None and str(item.get("index")) == str(index_value):
+                return i
+    return None
 

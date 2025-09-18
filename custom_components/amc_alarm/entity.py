@@ -4,22 +4,12 @@ from typing import Optional, Any, Callable
 
 from homeassistant.core import callback
 from homeassistant.util import slugify
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .coordinator import AmcDataUpdateCoordinator
 from .amc_alarm_api.amc_proto import AmcCentralResponse, AmcEntry
 from .amc_alarm_api.api import AmcStatesParser
 from .const import DOMAIN, CONF_TITLE
 
-
-def device_info(states: AmcStatesParser, central_id: str, coordinator: AmcDataUpdateCoordinator) -> DeviceInfo:
-    device_title = coordinator.get_config(CONF_TITLE)
-    return DeviceInfo(
-        identifiers={(DOMAIN, central_id)},
-        manufacturer="AMC Elettronica",
-        model=states.model(central_id),
-        name=device_title or states.real_name(central_id)
-    )
 
 
 class AmcBaseEntity(CoordinatorEntity):
@@ -29,17 +19,15 @@ class AmcBaseEntity(CoordinatorEntity):
     def __init__(
         self,
         coordinator: AmcDataUpdateCoordinator,
-        device_info: DeviceInfo,
-        amc_entry: AmcEntry,
+        amc_entry_fn: Callable[[], AmcEntry],
         name_prefix: str,
-        id_prefix: str,
-        attributes_fn: Callable[[dict[str, AmcCentralResponse]], AmcEntry],
+        id_prefix: str
     ) -> None:
         super().__init__(coordinator)
         self.coordinator = coordinator
 
-        self._attributes_fn = attributes_fn
-        self._amc_entry = amc_entry
+        self._amc_entry_fn = amc_entry_fn
+        self._amc_entry = amc_entry = self._amc_entry_fn()
 
         self._attr_name = ((name_prefix or "").strip() + " " + (amc_entry.name or f"{type(self).__name__} {amc_entry.index}").strip()).strip()
         if len(name_prefix or "") > 0:
@@ -49,12 +37,20 @@ class AmcBaseEntity(CoordinatorEntity):
         self._attr_unique_id = coordinator.get_id_prefix() + id_prefix + (
             str(amc_entry.Id) or f"{type(self).__name__}{amc_entry.index}"
         )
-        self._attr_device_info = device_info
+        
+    @property
+    def available(self):
+        return self.coordinator.device_available
+
+    @property
+    def device_info(self):
+        # Riutilizza lo stesso DeviceInfo già creato
+        return self.coordinator.device_info
 
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        self._amc_entry = self._attributes_fn(self.coordinator.data)
+        self._amc_entry = self._amc_entry_fn()
 
         super()._handle_coordinator_update()
 

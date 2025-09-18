@@ -11,7 +11,7 @@ from .coordinator import AmcDataUpdateCoordinator
 from .amc_alarm_api.amc_proto import CentralDataSections
 from .amc_alarm_api.api import AmcStatesParser
 from .const import *
-from .entity import AmcBaseEntity, device_info
+from .entity import AmcBaseEntity
 
 
 async def async_setup_entry(
@@ -20,26 +20,24 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator: AmcDataUpdateCoordinator = entry.runtime_data
-    states = AmcStatesParser(coordinator.data)
+    states = coordinator.data_parsed
     alarms: list[AlarmControlPanelEntity] = []
 
     def _zone(_central_id, _amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).zone(_central_id, _amc_id)
+        return lambda: coordinator.data_parsed.zone(_central_id, _amc_id)
 
     def _group(_central_id, _amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).group(_central_id, _amc_id)
+        return lambda: coordinator.data_parsed.group(_central_id, _amc_id)
 
     def _area(_central_id, _amc_id):
-        return lambda raw_state: AmcStatesParser(raw_state).area(_central_id, _amc_id)
+        return lambda: coordinator.data_parsed.area(_central_id, _amc_id)
     
     for central_id in coordinator.central_ids():
         if coordinator.get_config(CONF_ACP_GROUP_INCLUDED):            
             for x in states.groups(central_id).list:
                 sensor = AmcGroup(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_group(central_id, x.Id),
+                    amc_entry_fn=_group(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_ACP_GROUP_PREFIX),
                     id_prefix="alarm_group_",
                 )
@@ -49,9 +47,7 @@ async def async_setup_entry(
             for x in states.areas(central_id).list:
                 sensor = AmcArea(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_area(central_id, x.Id),
+                    amc_entry_fn=_area(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_ACP_AREA_PREFIX),
                     id_prefix="alarm_area_",
                 )
@@ -61,9 +57,7 @@ async def async_setup_entry(
             for x in states.zones(central_id).list:
                 sensor = AmcZone(
                     coordinator=coordinator,
-                    device_info=device_info(states, central_id, coordinator),
-                    amc_entry=x,
-                    attributes_fn=_zone(central_id, x.Id),
+                    amc_entry_fn=_zone(central_id, x.Id),
                     name_prefix=coordinator.get_config(CONF_ACP_ZONE_PREFIX),
                     id_prefix="alarm_zone_",
                 )

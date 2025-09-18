@@ -37,9 +37,10 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
-    VERSION = 1
+    VERSION = CONF_CURR_VERSION
     _entry_data: dict[str, Any] | None = None
     user_input: dict[str, Any] | None = None
+    api: SimplifiedAmcApi| None = None
 
     def _init_step(self, user_input, schema):
         #su una nuova maschera salvo i dati della precedente
@@ -101,7 +102,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
         """Handle the initial step."""
         self._init_step(user_input, get_schema_config_user(user_input))
         
-        if user_input is not None:                
+        if user_input is not None:
             api = SimplifiedAmcApi(
                 user_input[CONF_EMAIL],
                 user_input[CONF_PASSWORD],
@@ -109,20 +110,23 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                 user_input[CONF_CENTRAL_USERNAME],
                 user_input[CONF_CENTRAL_PASSWORD],
             )
+            self.api = api
             errors=self.errors
             try:
                 await api.command_get_states_and_return()
-            except ConnectionFailed:
-                errors["base"] = "cannot_connect"
-            except AuthenticationFailed:
-                errors["base"] = "invalid_auth"
-            except AmcCentralNotFoundException:
-                errors["base"] = "User login is fine but can't find AMC Central"
+            #except ConnectionFailed:
+            #    errors["base"] = "cannot_connect"
+            #except AuthenticationFailed:
+            #    errors["base"] = "invalid_auth"
+            #except AmcCentralNotFoundException:
+            #    errors["base"] = "User login is fine but can't find AMC Central"
             except AmcException as e:
                 errors["base"] = str(e)
-            except Exception as error:  # pylint: disable=broad-except
+            except ConnectionFailed as e:
+                errors["base"] = str(e)
+            except Exception as e:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
-                errors["base"] = "unknown"
+                errors["base"] = str(e)
             else:
                 states = AmcStatesParser(api.raw_states())
                 centralId = user_input[CONF_CENTRAL_ID]
@@ -175,7 +179,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_two(self, user_input=None):
         """Manage domain and entity filters."""
-        self._init_step(user_input, get_schema_options_two(user_input or self._entry_data))
+        self._init_step(user_input, get_schema_options_two(user_input or self._entry_data, self.api))
 
         if user_input is not None and not self.errors:
             return await self.async_step_three()
@@ -194,18 +198,6 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 
-def get_vol_default(config: dict, key, default=None):
-    if config:
-        return config.get(key) or vol.UNDEFINED
-    return default or vol.UNDEFINED
-
-
-def get_vol_descr(config: dict, key, default=None):
-    def_value = get_vol_default(config, key, default)
-    res = ({"suggested_value": def_value}) if def_value and def_value is not vol.UNDEFINED else {}
-    return res
-
-
 def get_schema_config_user(config: dict = {}) -> dict:
     """Return a shcema configuration dict for HACS."""
     config = config if CONF_CENTRAL_USERNAME in (config or {}) else None
@@ -216,7 +208,7 @@ def get_schema_config_user(config: dict = {}) -> dict:
         vol.Required(CONF_CENTRAL_ID, description=get_vol_descr(config, CONF_CENTRAL_ID)): str,
         vol.Required(CONF_CENTRAL_USERNAME, description=get_vol_descr(config, CONF_CENTRAL_USERNAME)): str,
         vol.Required(CONF_CENTRAL_PASSWORD, description=get_vol_descr(config, CONF_CENTRAL_PASSWORD)): str,
-        vol.Optional(CONF_USER_PIN, description=get_vol_descr(config, CONF_USER_PIN)): str
+        #vol.Optional(CONF_USER_PIN, description=get_vol_descr(config, CONF_USER_PIN)): str
     }
     return schema
 
@@ -229,7 +221,7 @@ def get_schema_options_init(config: dict = {}) -> dict:
     return schema
 
 
-def get_schema_options_two(config: dict = {}) -> dict:
+def get_schema_options_two(config: dict = {}, api: SimplifiedAmcApi = None) -> dict:
     """Return a shcema configuration dict for HACS."""
     config = config or {}
     config = config if CONF_STATUS_ZONE_PREFIX in config else None
@@ -240,6 +232,29 @@ def get_schema_options_two(config: dict = {}) -> dict:
         vol.Required(CONF_TITLE, description=get_vol_descr(config, CONF_TITLE)): str,
 
         vol.Required(CONF_SCAN_INTERVAL, description=get_vol_descr(config, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): int,
+    }
+    
+    states = AmcStatesParser(api.raw_states())
+    users = states.users(api._central_id)
+    if users:
+        OPTIONS = {
+            "-1": "Disable setters"
+        }        
+        OPTIONS.update({
+            v.index: v.name.strip()
+            for k, v in users.items()
+            if k.strip().isdigit()  # tiene solo le chiavi composte da cifre
+        })
+        default = ""
+        if config and CONF_USER_PIN in config:
+            user = states.user_by_pin(api._central_id, config.get(CONF_USER_PIN))
+            if user:
+                default = user.index
+        schema.update({
+            vol.Required(CONF_USER_INDEX, description=get_vol_descr(config, CONF_USER_INDEX, default)): vol.In(OPTIONS)
+        })
+
+    schema.update({
         vol.Optional(CONF_STATUS_SYSTEM_PREFIX, description=get_vol_descr(config, CONF_STATUS_SYSTEM_PREFIX, "Stato sistema")): str,
         
         vol.Optional(CONF_STATUS_GROUP_INCLUDED, description=get_vol_descr(config, CONF_STATUS_GROUP_INCLUDED, False)): bool,
@@ -251,7 +266,8 @@ def get_schema_options_two(config: dict = {}) -> dict:
         
         vol.Optional(CONF_OUTPUT_INCLUDED, description=get_vol_descr(config, CONF_OUTPUT_INCLUDED, True)): bool,
         vol.Optional(CONF_OUTPUT_PREFIX, description=get_vol_descr(config, CONF_OUTPUT_PREFIX, "Uscita")): str,
-    }
+    })
+
     return schema
 
 
@@ -268,4 +284,17 @@ def get_schema_options_three(config: dict = {}) -> dict:
         vol.Optional(CONF_ACP_ZONE_PREFIX, description=get_vol_descr(config, CONF_ACP_ZONE_PREFIX, "Zona")): str,        
     }
     return schema
+
+
+
+def get_vol_default(config: dict, key, default=None):
+    if config:
+        return config.get(key) or vol.UNDEFINED
+    return default or vol.UNDEFINED
+
+
+def get_vol_descr(config: dict, key, default=None):
+    def_value = get_vol_default(config, key, default)
+    res = ({"suggested_value": def_value}) if def_value and def_value is not vol.UNDEFINED else {}
+    return res
 
