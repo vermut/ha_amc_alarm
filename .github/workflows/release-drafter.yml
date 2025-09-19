@@ -30,6 +30,8 @@ jobs:
 
       - name: Checkout repo
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # prende tutto lo storico dei commit
 
       - name: Get latest tag
         id: tag
