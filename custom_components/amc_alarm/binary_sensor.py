@@ -83,7 +83,7 @@ async def async_setup_entry(
 
 class AmcSystemStatusSensor(AmcBaseEntity, BinarySensorEntity):
     _amc_group_id = CentralDataSections.SYSTEM_STATUS
-    _attr_device_class = BinarySensorDeviceClass.TAMPER				
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_entity_category = (EntityCategory.DIAGNOSTIC)
 
     def _handle_coordinator_update(self) -> None:
