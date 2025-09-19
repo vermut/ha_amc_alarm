@@ -4,6 +4,8 @@ on:
   release:
     types: [published]
 
+    workflow_dispatch:  # permette esecuzione manuale dal tab "Actions"
+
 jobs:
   release_zip_file:
     name: Prepare release asset
