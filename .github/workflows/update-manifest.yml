@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v2              
         with:
           fetch-depth: 0       # prende tutto lo storico
-          ref: main            # o il branch su cui vuoi pushare
+          ref: ${{ github.ref }}            # o il branch su cui vuoi pushare
 
       - name: Get version
         id: version
