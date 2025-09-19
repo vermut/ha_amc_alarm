@@ -13,9 +13,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v2              
-        with:
-          fetch-depth: 0       # prende tutto lo storico
-          ref: ${{ github.ref }}            # o il branch su cui vuoi pushare
+        #with:
+        #  fetch-depth: 0       # prende tutto lo storico
+        #  ref: ${{ github.ref }}            # o il branch su cui vuoi pushare
 
       - name: Get version
         id: version
@@ -35,15 +35,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Commit manifest changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add custom_components/amc_alarm/manifest.json
-          git commit -m "Update manifest version to ${{ steps.version.outputs.version }}" || echo "No changes to commit"
-          git push
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      #- name: Commit manifest changes
+      #  run: |
+      #    git config user.name "github-actions[bot]"
+      #    git config user.email "github-actions[bot]@users.noreply.github.com"
+      #    git add custom_components/amc_alarm/manifest.json
+      #    git commit -m "Update manifest version to ${{ steps.version.outputs.version }}" || echo "No changes to commit"
+      #    git push
+      #  env:
+      #    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           
       - name: Upload zip to release
         uses: svenstaro/upload-release-action@v1-release
