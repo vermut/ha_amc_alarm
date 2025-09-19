@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS
+from homeassistant.const import PERCENTAGE, SIGNAL_STRENGTH_DECIBELS, EntityCategory
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -29,6 +29,7 @@ async def async_setup_entry(
     sensors: list[SensorEntity] = []
     
     sensors.append(DeviceStatusSensor(coordinator=coordinator))
+    sensors.append(DeviceStatusConnectivitySensor(coordinator=coordinator))
 
     def _notifications(_central_id):
         return lambda: coordinator.data_parsed.notifications(_central_id)
@@ -67,6 +68,7 @@ async def async_setup_entry(
 class AmcBatterySensor(AmcBaseEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.BATTERY
     _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_entity_category = (EntityCategory.DIAGNOSTIC)
 
     def _handle_coordinator_update(self) -> None:
         super()._handle_coordinator_update()
@@ -78,6 +80,7 @@ class AmcBatterySensor(AmcBaseEntity, SensorEntity):
 class AmcSignalSensor(AmcBaseEntity, SensorEntity):
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
     _attr_native_unit_of_measurement = SIGNAL_STRENGTH_DECIBELS
+    _attr_entity_category = (EntityCategory.DIAGNOSTIC)
 
     def _handle_coordinator_update(self) -> None:
         super()._handle_coordinator_update()
@@ -130,9 +133,59 @@ class AmcNotification(CoordinatorEntity, SensorEntity):
 
 
 class DeviceStatusSensor(SensorEntity):
+    _attr_entity_category = (EntityCategory.DIAGNOSTIC)
+
     def __init__(self, coordinator):
         self.coordinator = coordinator
         self._attr_name = "Device Status"
+        self._attr_unique_id = f"{coordinator.get_id_prefix()}_status"
+        #self._attr_device_class = "connectivity"
+
+    @property
+    def device_info(self):
+        # Riutilizza lo stesso DeviceInfo già creato
+        return self.coordinator.device_info
+
+    @property
+    def available(self):
+        """Sempre disponibile, indipendentemente dallo stato del device."""
+        return True
+
+    @property
+    def native_value(self):
+        """Stato della connessione websocket/API."""
+        api = self.coordinator.api
+        res = getattr(getattr(api, "_ws_state", None), "name", "unknown").replace("_", " ").capitalize()
+        det = getattr(api, "_ws_state_detail", None)
+        if det:
+            res = f"{res} {det}"
+        return res
+    
+    @property
+    def extra_state_attributes(self):
+        """Aggiungi dettagli utili sullo stato della connessione."""
+        api = self.coordinator.api
+        central_data = api.raw_states()[api._central_id] if api.raw_states() and api._central_id in api.raw_states() else None
+        #states = self.coordinator.data_parsed if self.coordinator.api._raw_states_central_valid else None        
+        return {
+            #"last_error": getattr(self.coordinator, "last_error", None),
+            #"last_update": getattr(self.coordinator, "last_update_success_time", None),
+            "retries": getattr(self.coordinator, "retry_count", 0),
+            "ws_state": getattr(getattr(self.coordinator.api, "_ws_state", None), "name", "unknown"),
+            "ws_state_detail": getattr(api, "_ws_state_detail", None),
+            "central_status": getattr(central_data, "status", None),
+            "central_statusID": getattr(central_data, "statusID", None),
+            #"raw_states_central_valid": getattr(self.coordinator.api, "_raw_states_central_valid", None),
+            #"status_is_error": states.status_is_error(self.coordinator.api._central_id) if states else None,
+            #"raw_data": self.coordinator.data,
+        }
+    
+class DeviceStatusConnectivitySensor(SensorEntity):
+    _attr_entity_category = (EntityCategory.DIAGNOSTIC)
+
+    def __init__(self, coordinator):
+        self.coordinator = coordinator
+        self._attr_name = "Device Connectivity"
         self._attr_unique_id = f"{coordinator.get_id_prefix()}_connectivity"
         self._attr_device_class = "connectivity"
 
@@ -151,23 +204,6 @@ class DeviceStatusSensor(SensorEntity):
         """Stato della connessione websocket/API."""
         return "connected" if self.coordinator.device_available else "disconnected"
 
-    @property
-    def extra_state_attributes(self):
-        """Aggiungi dettagli utili sullo stato della connessione."""
-        api = self.coordinator.api
-        central_data = api.raw_states()[api._central_id] if api.raw_states() and api._central_id in api.raw_states() else None
-        #states = self.coordinator.data_parsed if self.coordinator.api._raw_states_central_valid else None        
-        return {
-            "last_error": getattr(self.coordinator, "last_error", None),
-            "last_update": getattr(self.coordinator, "last_update_success_time", None),
-            "retries": getattr(self.coordinator, "retry_count", 0),
-            "ws_state": getattr(getattr(self.coordinator.api, "_ws_state", None), "name", "unknown"),
-            "central_status": getattr(central_data, "status", None),
-            "central_statusID": getattr(central_data, "statusID", None),
-            #"raw_states_central_valid": getattr(self.coordinator.api, "_raw_states_central_valid", None),
-            #"status_is_error": states.status_is_error(self.coordinator.api._central_id) if states else None,
-            #"raw_data": self.coordinator.data,
-        }
     
 def getattr_nested(obj, attr_path, default=None):
     for attr in attr_path.split("."):

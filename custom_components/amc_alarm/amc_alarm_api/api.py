@@ -37,6 +37,8 @@ class ConnectionState(Enum):
     AUTHENTICATED = 2
     DISCONNECTED = 3
     STOPPED = 4
+    CENTRAL_OK = 5
+    CENTRAL_KO = 6
 
 class CommandState(Enum):
     NONE = 0
@@ -91,10 +93,11 @@ class SimplifiedAmcApi:
         self._central_id = central_id
         self._central_username = central_username
         self._central_password = central_password
-        self._central_pin = None
+        #self._central_pin = None
 
         self._listen_task = None
         self._ws_state = ConnectionState.DISCONNECTED
+        self._ws_state_detail = None
         self._aiohttp_session = None
         self._websocket = None
         self._sessionToken = None
@@ -180,7 +183,7 @@ class SimplifiedAmcApi:
         if self._aiohttp_session:
             await self._aiohttp_session.close()
             self._aiohttp_session = None
-        await self._change_state(ConnectionState.DISCONNECTED)
+        #await self._change_state(ConnectionState.DISCONNECTED)
 
     async def _listen_start(self) -> None:
         if self._ws_state != ConnectionState.STOPPED:
@@ -221,7 +224,9 @@ class SimplifiedAmcApi:
                 await self._change_state(ConnectionState.CONNECTED)
 
                 self._msg_quee_get_states = True
-                if not self._sessionToken:
+                if self._sessionToken:
+                    await self._change_state(ConnectionState.AUTHENTICATED)
+                else:
                     self._msg_quee_login = True
                 await self._send_msg_quee()
 
@@ -231,13 +236,16 @@ class SimplifiedAmcApi:
                         break
 
                     if message.type == aiohttp.WSMsgType.ERROR:
+                        #self._sessionToken = None
                         _LOGGER.warning(f"Error received from WS server: {message}")
                         #self._cancel_pending_messages(Exception(f"Error received from WS server: {message}"))
+                        await self._change_state(ConnectionState.DISCONNECTED, f"Error received from WS server: {message}")
                         break
 
                     if message.type == aiohttp.WSMsgType.CLOSED:
                         _LOGGER.warning("AIOHTTP websocket connection closed")
                         self._cancel_pending_messages(Exception("AIOHTTP websocket connection closed"))
+                        await self._change_state(ConnectionState.DISCONNECTED, "AIOHTTP websocket connection closed")
                         break
 
                     if message.type == aiohttp.WSMsgType.TEXT:
@@ -257,17 +265,19 @@ class SimplifiedAmcApi:
         except aiohttp.ClientResponseError as error:
             self._cancel_pending_messages(error)
             _LOGGER.error("Unexpected response received from server : %s", error)
-            await self._change_state(ConnectionState.DISCONNECTED)
+            await self._change_state(ConnectionState.DISCONNECTED, f"ClientResponseError: {error}")
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.client_exceptions.ClientConnectionResetError) as error:
+            err_type = type(error).__name__
             self._cancel_pending_messages(error)
             retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)            
             self._failed_attempts += 1
             if self._failed_attempts <= 2:
                 retry_delay = 0
             _LOGGER.error("Websocket connection failed, retrying in %ds: %s", retry_delay, error)
-            await self._change_state(ConnectionState.DISCONNECTED)
+            await self._change_state(ConnectionState.DISCONNECTED, f"{err_type}: {error}")
             await asyncio.sleep(retry_delay)
         except Exception as error:
+            err_type = type(error).__name__
             self._cancel_pending_messages(error)
             #exstr = str(error)
             #if "'NoneType' object has no attribute 'connect'" in exstr:
@@ -277,12 +287,13 @@ class SimplifiedAmcApi:
                 retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
                 self._failed_attempts += 1
                 _LOGGER.exception("Unexpected exception occurred, retrying in %ds: %s", retry_delay, error)
-                await self._change_state(ConnectionState.DISCONNECTED)
+                await self._change_state(ConnectionState.DISCONNECTED, f"{err_type}: {error}")
                 await asyncio.sleep(retry_delay)
                 
         finally:
             if self._websocket:
                 await self._websocket.close()
+                self._websocket = None
             if self._ws_state != ConnectionState.STOPPED and self._ws_state != ConnectionState.DISCONNECTED:
                 await self._change_state(ConnectionState.DISCONNECTED)
             self._ws_state_disconnecting = False
@@ -295,14 +306,19 @@ class SimplifiedAmcApi:
                 message.set_ko(error)
 
     async def _send_msg_quee(self):
-        if self._msg_quee_login or not self._sessionToken:
-            if self._ws_state == ConnectionState.CONNECTED or self._ws_state == ConnectionState.AUTHENTICATED:
+
+        if self._msg_quee_login or not self._sessionToken or self._ws_state == ConnectionState.CONNECTED:
+            if self._ws_state in (ConnectionState.CONNECTED, ConnectionState.AUTHENTICATED, ConnectionState.CENTRAL_OK, ConnectionState.CENTRAL_KO):
                 await self._login()
                 self._msg_quee_login = False
             return
-        if self._msg_quee_get_states and self._ws_state == ConnectionState.AUTHENTICATED:
-            await self.command_get_states()
-            self._msg_quee_get_states = False
+            
+        if self._msg_quee_get_states:
+            if self._ws_state in (ConnectionState.AUTHENTICATED, ConnectionState.CENTRAL_OK, ConnectionState.CENTRAL_KO):
+                await self.command_get_states()
+                self._msg_quee_get_states = False
+                return
+
 
 
 
@@ -330,7 +346,6 @@ class SimplifiedAmcApi:
             case "visitedOK":
                 _LOGGER.debug("Received message %s" % data.command)
                 status.set_ok(data.command)
-
             case AmcCommands.LOGIN_USER:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:
                     _LOGGER.debug("Authorized")
@@ -338,46 +353,45 @@ class SimplifiedAmcApi:
                     self._failed_attempts = 0
                     await self._change_state(ConnectionState.AUTHENTICATED)
                     status.set_ok(data.user.token)
+                    self._msg_quee_get_states = True
                 else:
                     _LOGGER.warning("Authorization failure: %s, data=%s" % (data.status, message.data))
                     self._ws_state_stop_exeception = AuthenticationFailed(data.status or message.data)
-                    await self._change_state(ConnectionState.STOPPED)
+                    await self._change_state(ConnectionState.STOPPED, f"Authorization failure: : {data.status}")
                     status.set_ko(self._ws_state_stop_exeception)                    
-
-
             case AmcCommands.GET_STATES:
                 
                 #Websocket received data: {"command":"getStates","status":"error","message":"not logged, please login"}
                 if data.status == AmcCommands.STATUS_ERROR and data.message == AmcCommands.MESSAGE_PLEASE_LOGIN:
                     if self._last_login_date + timedelta(seconds=15) < datetime.now():
                         _LOGGER.debug("Logging after received request to relogin: %s" % (message.data))
-                        await self._change_state(ConnectionState.CONNECTED)
+                        await self._change_state(ConnectionState.CONNECTED, "Received request to relogin")
                         self._msg_quee_login = True
                         self._msg_quee_get_states = True
                     else:
-                        await self._change_state(ConnectionState.DISCONNECTED)
+                        await self._change_state(ConnectionState.DISCONNECTED, "Received many request to relogin")
                     return
 
                 if not self._central_id in data.centrals:
                     _LOGGER.warning("GetStates failure, central not found: %s, data=%s" % (data.status, message.data))
                     self._ws_state_stop_exeception = AmcCentralNotFoundException("User login is fine but can't find AMC Central.")
-                    await self._change_state(ConnectionState.STOPPED)
+                    await self._change_state(ConnectionState.STOPPED, "Central not found")
                     status.set_ko(self._ws_state_stop_exeception)
                     return
                 
-                if self._central_pin and data.status == AmcCommands.STATUS_OK:  # only for amcProtoVer >= 2
-                    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
-                    states = AmcStatesParser(data.centrals)
-                    err = None
-                    if states.users(centralId) is None:
-                        err = AuthenticationFailed("User PIN not allowed, users not received")
-                    elif not states.user_by_pin(centralId, userPin):
-                        err = AuthenticationFailed("User PIN not valid")
-                    if err:
-                        self._ws_state_stop_exeception = err
-                        await self._change_state(ConnectionState.STOPPED)
-                        status.set_ko(self._ws_state_stop_exeception)
-                        return
+                #if self._central_pin and data.status == AmcCommands.STATUS_OK:  # only for amcProtoVer >= 2
+                #    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
+                #    states = AmcStatesParser(data.centrals)
+                #    err = None
+                #    if states.users(centralId) is None:
+                #        err = AuthenticationFailed("User PIN not allowed, users not received")
+                #    elif not states.user_by_pin(centralId, userPin):
+                #        err = AuthenticationFailed("User PIN not valid")
+                #    if err:
+                #        self._ws_state_stop_exeception = err
+                #        await self._change_state(ConnectionState.STOPPED)
+                #        status.set_ko(self._ws_state_stop_exeception)
+                #        return
 
 
                 if data.status == AmcCommands.STATUS_OK:
@@ -387,6 +401,7 @@ class SimplifiedAmcApi:
                     self._raw_states_centralstatus_valid = True
                     self._failed_attempts = 0
                     status.set_ok(data.centrals)
+                    await self._change_state(ConnectionState.CENTRAL_OK)
                     await self._data_changed()
                 elif data.status == AmcCommands.STATUS_KO:
                     #{"command":"getStates","status":"ko","layout":null,"centrals":{"10EF60834A5436323003323338310000":{"statusID":-1,"status":"not available"}}}
@@ -405,13 +420,13 @@ class SimplifiedAmcApi:
                         self.raw_states_json_model["centrals"][self._central_id]["status"] = status_new
                         self._raw_states[self._central_id].statusID = statusID_new
                         self._raw_states[self._central_id].status = status_new
-                        await self._data_changed()
+                    await self._change_state(ConnectionState.CENTRAL_KO, f"Central {status_new}")
                 else:
-                    status.set_ko(AmcException(message.data))
                     _LOGGER.warning("Error getting states: %s, data=%s" % (data.centrals, message.data))
-                    raise AmcException(data.centrals or message.data)
+                    status.set_ko(AmcException(message.data))
+                    await self._change_state(ConnectionState.DISCONNECTED, f"Central States Status {data.status}")
             case AmcCommands.APPLY_PATCH:
-                if not self._raw_states_central_valid:
+                if self._ws_state != ConnectionState.CENTRAL_OK:
                     self._msg_quee_get_states = True
                     return            
                 try:
@@ -432,10 +447,12 @@ class SimplifiedAmcApi:
                     self._msg_quee_get_states = True                
             case _:
                 _LOGGER.warning("Unknown command received from server : %s, data=%s" % (data, message.data))
+                status.set_ko(f"Unknown command received from server : {data.command} - {message.data}")
 
-    async def _change_state(self, wsstate):
-        if self._ws_state != wsstate:
+    async def _change_state(self, wsstate, detailmsg = None):
+        if self._ws_state != wsstate or self._ws_state_detail != detailmsg:
             self._ws_state = wsstate
+            self._ws_state_detail = detailmsg
             if self._callback and not self._callback_get_states_disabled:
                 await self._callback()
 
