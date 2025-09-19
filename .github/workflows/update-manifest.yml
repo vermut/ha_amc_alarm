@@ -23,16 +23,7 @@ jobs:
         run: |
           cd custom_components/amc_alarm
           zip amc_alarm.zip -r ./
-      - name: Upload zip to release
-        uses: svenstaro/upload-release-action@v1-release
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./custom_components/amc_alarm/amc_alarm.zip
-          asset_name: amc_alarm.zip
-          tag: ${{ github.ref }}
-          overwrite: true
 
-          
       - name: Delete existing draft release
         run: |
           gh release delete next-release -y || echo "No existing draft"
@@ -48,3 +39,14 @@ jobs:
           git push
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Upload zip to release
+        uses: svenstaro/upload-release-action@v1-release
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: ./custom_components/amc_alarm/amc_alarm.zip
+          asset_name: amc_alarm.zip
+          tag: ${{ github.ref }}
+          overwrite: true
+
+          
