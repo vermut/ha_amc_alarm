@@ -62,5 +62,6 @@ jobs:
           name: Draft Release
           body: ${{ steps.commits.outputs.commit_list }}
           draft: true
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
