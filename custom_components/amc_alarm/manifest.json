@@ -1,11 +1,16 @@
 {
-    "domain": "amc_alarm",
-    "name": "AMC Alarm",
-    "codeowners": ["@davideciarmiello", "@vermut"],
+    "codeowners": [
+        "@davideciarmiello",
+        "@vermut"
+    ],
     "config_flow": true,
     "documentation": "https://github.com/davideciarmiello/ha_amc_alarm",
+    "domain": "amc_alarm",
     "iot_class": "cloud_push",
     "issue_tracker": "https://github.com/davideciarmiello/ha_amc_alarm/issues",
-    "loggers": ["custom_components.amc_alarm"],
-    "version": "0.2.2"
+    "loggers": [
+        "custom_components.amc_alarm"
+    ],
+    "name": "AMC Alarm",
+    "version": "2025.09.0.de1917"
 }
