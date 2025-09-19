@@ -5,12 +5,46 @@ on:
     branches:
       - master
 
+#jobs:
+#  draft_release:
+#    name: Release Drafter
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Run release-drafter
+#        uses: release-drafter/release-drafter@v5.15.0
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#
+
+
 jobs:
-  draft_release:
-    name: Release Drafter
+  generate_draft_release:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Run release-drafter
-        uses: release-drafter/release-drafter@v5.15.0
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Get latest tag
+        id: tag
+        run: |
+          TAG=$(git describe --tags --abbrev=0 || echo "v0.0.0")
+          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Get commits since latest tag
+        id: commits
+        run: |
+          COMMITS=$(git log ${{ steps.tag.outputs.latest_tag }}..HEAD --pretty=format:"- %s")
+          echo "commit_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: next-release
+          name: Draft Release
+          body: ${{ steps.commits.outputs.commit_list }}
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
