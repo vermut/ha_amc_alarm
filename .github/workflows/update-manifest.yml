@@ -23,6 +23,23 @@ jobs:
         run: |
           cd custom_components/amc_alarm
           zip amc_alarm.zip -r ./
+
+      - name: Delete existing draft release
+        run: |
+          gh release delete next-release -y || echo "No existing draft"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit manifest changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add custom_components/amc_alarm/manifest.json
+          git commit -m "Update manifest version to ${{ steps.version.outputs.version }}" || echo "No changes to commit"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Upload zip to release
         uses: svenstaro/upload-release-action@v1-release
         with:
@@ -31,3 +48,5 @@ jobs:
           asset_name: amc_alarm.zip
           tag: ${{ github.ref }}
           overwrite: true
+
+          
