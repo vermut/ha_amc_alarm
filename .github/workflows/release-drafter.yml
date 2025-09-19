@@ -54,7 +54,13 @@ jobs:
           echo "commit_list<<EOF" >> $GITHUB_OUTPUT
           echo "$COMMITS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
+          
+      - name: Delete existing draft release
+        run: |
+          gh release delete next-release -y || echo "No existing draft"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
       - name: Create GitHub draft release
         uses: softprops/action-gh-release@v1
         with:
