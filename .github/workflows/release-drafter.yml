@@ -28,13 +28,21 @@ jobs:
       - name: Get latest tag
         id: tag
         run: |
-          TAG=$(git describe --tags --abbrev=0 || echo "v0.0.0")
-          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$TAG" ]; then
+            echo "latest_tag=" >> $GITHUB_OUTPUT
+          else
+            echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+          fi
 
       - name: Get commits since latest tag
         id: commits
-        run: |
-          COMMITS=$(git log ${{ steps.tag.outputs.latest_tag }}..HEAD --pretty=format:"- %s")
+        run: |          
+          if [ -z "${{ steps.tag.outputs.latest_tag }}" ]; then
+            COMMITS=$(git log --pretty=format:"- %s")
+          else
+            COMMITS=$(git log ${{ steps.tag.outputs.latest_tag }}..HEAD --pretty=format:"- %s")
+          fi
           echo "commit_list<<EOF" >> $GITHUB_OUTPUT
           echo "$COMMITS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
