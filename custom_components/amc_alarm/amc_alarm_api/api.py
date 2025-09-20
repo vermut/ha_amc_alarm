@@ -471,9 +471,9 @@ class SimplifiedAmcApi:
 
 
     async def _process_json_patch(self, data, p):
-        """Applica una lista di patch JSON su un dict senza jsonpatch."""
+        """Apply a list of JSON patches to a dict without using jsonpatch."""
 
-        #esempi:
+        # Examples:
         # { "op": "replace", "path": "/centrals/10EF60834A5436323003323338310000/data/2/list/19/states", "value": {"redalert":0,"progress":0,"bit_showHide":1,"bit_on":1,"bit_exludable":1,"bit_armed":0,"anomaly":1,"bit_opened":1,"bit_notReady":0,"video":0} }
         # { "op": "add", "path": "/centrals/10EF60834A5436323003323338310000/data/2/list/23/notifications/0", "value": {"command":"notification","name":"Inibizione balcone tamper","category":4,"serverDate":"Thu, 18 Sep 2025 10:10:33 +0200","centralDate":"2025-09-17 10:13:43 +0000","centralGroup":2,"centralIndex":23,"states":{"anomaly":1,"bit_showHide":1,"redalert":1}} }
         # { "op": "add", "path": "/centrals/10EF60834A5436323003323338310000/data/5/list/0", "value": {"command":"notification","name":"Inibizione balcone tamper","category":4,"serverDate":"Thu, 18 Sep 2025 10:10:33 +0200","centralDate":"2025-09-17 10:13:43 +0000","centralGroup":2,"centralIndex":23,"states":{"anomaly":1,"bit_showHide":1,"redalert":1}} }
@@ -744,8 +744,8 @@ class AmcStatesParser:
 
 
 def safe_json_loads(value: str):
-    """Prova a convertire la stringa JSON in dict, 
-    altrimenti ritorna la stringa originale."""
+    """Try to convert the JSON string to dict,
+    otherwise return the original string."""
     if not isinstance(value, str):
         return value
     try:
@@ -754,7 +754,7 @@ def safe_json_loads(value: str):
         return value
 
 def _find_pos_by_item_index(lst, index_value) -> int | None:
-    """Cerca in lst l'elemento con campo 'index' == index_value e ritorna la posizione, altrimenti None."""
+    """Search in lst for the element with field 'index' == index_value and return the position, otherwise None."""
     for i, item in enumerate(lst):
         if isinstance(item, dict):
             # confronto flessibile su stringa/int

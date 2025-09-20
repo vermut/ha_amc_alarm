@@ -44,7 +44,7 @@ class AmcBaseEntity(CoordinatorEntity):
 
     @property
     def device_info(self):
-        # Riutilizza lo stesso DeviceInfo già creato
+        # Reuse the same DeviceInfo already created
         return self.coordinator.device_info
 
     @callback
