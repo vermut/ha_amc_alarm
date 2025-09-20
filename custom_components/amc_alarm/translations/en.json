@@ -1,7 +1,10 @@
 {
+    "title": "AMC",
     "config": {
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Device is already configured",
+            "reconfigure_successful": "Configuration completed",
+            "account_mismatch": "Central ID is not allowed to change"
         },
         "error": {
             "cannot_connect": "Failed to connect",
@@ -10,19 +13,53 @@
         },
         "step": {
             "user": {
+                "title": "Set up AMC",
                 "data": {
                     "central_id": "AMC Central ID",
                     "central_password": "AMC Central Password",
                     "central_username": "AMC Central Login",
                     "email": "Email",
-                    "password": "Password"
+                    "password": "Password",
+                    "user_pin": "AMC User Pin"
                 },
                 "data_description": {
                     "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
                     "central_password": "AMC Central Password",
                     "central_username": "AMC Central Login",
                     "email": "Email from webapp",
-                    "password": "Password from webapp"
+                    "password": "Password from webapp",
+                    "user_pin": "Default User Pin for switch outputs"
+                }
+            },
+            "two": {
+                "title": "Set up AMC (2) - Status sensors",
+                "data": {
+                    "title": "AMC Central Title",
+                    "scan_interval": "Scan Interval (seconds)",
+                    "user_index": "AMC Default User",
+                    "sensor_status_system_prefix": "Sensor System Status Prefix",
+                    "sensor_status_group_included": "Sensor Group Status Included",
+                    "sensor_status_group_prefix": "Sensor Group Status Prefix",                    
+                    "sensor_status_area_included": "Sensor Area Status Included",
+                    "sensor_status_area_prefix": "Sensor Area Status Prefix",                    
+                    "sensor_status_zone_included": "Sensor Zone Status Included",
+                    "sensor_status_zone_prefix": "Sensor Zone Status Prefix",                    
+                    "output_included": "Output Included",
+                    "output_prefix": "Output Prefix"
+                },
+                "data_description": {
+                    "user_index": "Default User for switch outputs"
+                }
+            },
+            "three": {
+                "title": "Set up AMC (3) - Alarm Control Panel entity",
+                "data": {
+                    "alarm_group_included": "ACP Group Included",
+                    "alarm_group_prefix": "ACP Group Prefix",
+                    "alarm_area_included": "ACP Area Included",
+                    "alarm_area_prefix": "ACP Area Prefix",
+                    "alarm_zone_included": "ACP Zone Included",
+                    "alarm_zone_prefix": "ACP Zone Prefix"
                 }
             }
         }

@@ -7,13 +7,19 @@ from pydantic import BaseModel
 class AmcCommands(StrEnum):
     LOGIN_USER = "loginUser"
     GET_STATES = "getStates"
+    APPLY_PATCH = "applyPatch"
+    CHECK_CENTRALS = "checkCentrals"
     STATUS_OK = "ok"
+    STATUS_KO = "ko"
+    STATUS_ERROR = "error"
     STATUS_LOGGED_IN = "Logged"
     STATUS_LOGIN_NOT_FOUND = "User not found"
+    STATUS_NOT_AVAILABLE = "not available"
+    MESSAGE_PLEASE_LOGIN = "not logged, please login"
 
 
 class AmcState(BaseModel):
-    redalert: Optional[int]
+    redalert: Optional[int] = None
     bit_showHide: int
     bit_on: int
     bit_exludable: int
@@ -21,8 +27,8 @@ class AmcState(BaseModel):
     anomaly: int
     bit_opened: int
     bit_notReady: int
-    remote: Optional[bool]
-    progress: Optional[int]
+    remote: Optional[bool] = None
+    progress: Optional[int] = None
 
 
 class AmcEntry(BaseModel):
@@ -44,7 +50,7 @@ class AmcData(BaseModel):
 class AmcSystemStateEntry(BaseModel):
     index: int
     name: str
-    Id: Optional[int]
+    Id: Optional[int] = None
     states: AmcState
 
 
@@ -74,11 +80,13 @@ class AmcStatusEntry(BaseModel):
 
 
 class AmcUserEntry(BaseModel):
-    name: Optional[str]
+    index: Optional[int] = None
+    name: Optional[str] = None
+    pin: Optional[str] = None
 
 
 class AmcUsers(BaseModel):
-    index: Literal[7]
+    index: Literal[7] #CentralDataSections.USERS
     users: dict[str, AmcUserEntry]
 
 
@@ -89,11 +97,15 @@ class AmcCentral(BaseModel):
 
 
 class AmcCentralResponse(BaseModel):
+    statusID: Optional[int] = None
     status: str
+    amcProtoVer: Optional[int] = None
     realName: Optional[str] = None
+    generalStates: Optional[dict] = None
     data: Optional[
         list[AmcData | AmcSystemState | AmcNotification | AmcStatusEntry | AmcUsers]
     ] = None
+    returned: Optional[int] = None
 
 
 class AmcUser(BaseModel):
@@ -107,6 +119,10 @@ class AmcUser(BaseModel):
     userState: str
     token: str
 
+class AmcPatch(BaseModel):
+    op: str
+    path: str
+    value: dict | str | int
 
 class AmcLogin(BaseModel):
     email: str
@@ -127,13 +143,18 @@ class AmcCommand(BaseModel):
     index: Optional[int] = None
     state: Optional[bool] = None
 
+    userPIN: Optional[str] = None
+    userIdx: Optional[int] = None
+
 
 class AmcCommandResponse(BaseModel):
     command: str
     status: Optional[str] = None
+    message: Optional[str] = None
     centrals: Optional[dict[str, AmcCentralResponse]] = None
     user: Optional[AmcUser] = None
     token: Optional[str] = None
+    patch: Optional[List[AmcPatch]] = None
 
 
 class CentralDataSections:
@@ -143,8 +164,9 @@ class CentralDataSections:
     OUTPUTS = 3
     SYSTEM_STATUS = 4
     NOTIFICATIONS = 5
+    USERS = 7 #only for amcProtoVer >= 2
 
-    __all__ = [GROUPS, AREAS, OUTPUTS, SYSTEM_STATUS, NOTIFICATIONS]
+    __all__ = [GROUPS, AREAS, OUTPUTS, SYSTEM_STATUS, NOTIFICATIONS, USERS]
 
 
 class SystemStatusDataSections:

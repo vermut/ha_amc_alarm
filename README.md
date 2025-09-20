@@ -1,4 +1,4 @@
-AMC Alarm integration for HomeAssistant
+AMC Alarm integration for HomeAssistant (davideciarmiello)
 ===
 
       This has no official affiliation with AMC. Henceforth, it does not offer any guarantees, liability or promises that 
@@ -13,7 +13,7 @@ Usage
 * Zones, groups and areas are alarm panels.
 * Notification list is in attributes of a sensor.
 * Tamper system alerts are binary sensors.
-* Outputs are present but untested.
+* Outputs are present.
       
 Compatibility
 ===
@@ -22,6 +22,7 @@ Known to work on:
 * K8/1.77
 * X824/3.73
 * X824V/4.10
+* X864V/4.10
 * X64V/4.20
 
 

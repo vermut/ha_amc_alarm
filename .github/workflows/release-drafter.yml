@@ -4,13 +4,57 @@ on:
   push:
     branches:
       - master
-
 jobs:
-  draft_release:
-    name: Release Drafter
+  generate_draft_release:
     runs-on: ubuntu-latest
+
     steps:
+    
       - name: Run release-drafter
-        uses: release-drafter/release-drafter@v6.1.0
+        uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # prende tutto lo storico dei commit
+
+      - name: Get latest tag
+        id: tag
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$TAG" ]; then
+            echo "latest_tag=" >> $GITHUB_OUTPUT
+          else
+            echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get commits since latest tag
+        id: commits
+        run: |          
+          if [ -z "${{ steps.tag.outputs.latest_tag }}" ]; then
+            COMMITS=$(git log --pretty=format:"- %s")
+          else
+            COMMITS=$(git log ${{ steps.tag.outputs.latest_tag }}..HEAD --pretty=format:"- %s")
+          fi
+          echo "commit_list<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+      - name: Delete existing draft release
+        run: |
+          gh release delete next-release -y || echo "No existing draft"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Create GitHub draft release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: next-release
+          name: Draft Release
+          body: ${{ steps.commits.outputs.commit_list }}
+          draft: true
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

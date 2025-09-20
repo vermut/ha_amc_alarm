@@ -7,15 +7,40 @@
           "password": "[%key:common::config_flow::data::password%]",
           "central_id": "AMC Central ID",
           "central_username": "AMC Central Login",
-          "central_password": "AMC Central Password"
+          "central_password": "AMC Central Password",
+          "user_pin": "AMC User Pin"
         },
         "data_description": {
           "email": "Email from webapp",
           "password": "Password from webapp",
           "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
           "central_username": "AMC Central Login",
-          "central_password": "AMC Central Password"
+          "central_password": "AMC Central Password",
+          "user_pin": "Default User Pin for switch outputs"
         }
+      },
+      "two": {
+          "title": "Set up AMC (2) - Status sensors",
+          "data": {
+              "title": "AMC Central Title",
+              "scan_interval": "Scan Interval (seconds)",
+              "sensor_status_system_prefix": "Sensor System Status Prefix",
+              "sensor_status_zone_included": "Sensor Zone Status Included",
+              "sensor_status_zone_prefix": "Sensor Zone Status Prefix",
+              "output_included": "Output Included",
+              "output_prefix": "Output Prefix"
+          }
+      },
+      "three": {
+          "title": "Set up AMC (3) - Alarm Control Panel entity",
+          "data": {
+              "alarm_group_included": "ACP Group Included",
+              "alarm_group_prefix": "ACP Group Prefix",
+              "alarm_area_included": "ACP Area Included",
+              "alarm_area_prefix": "ACP Area Prefix",
+              "alarm_zone_included": "ACP Zone Included",
+              "alarm_zone_prefix": "ACP Zone Prefix"
+          }
       }
     },
     "error": {
@@ -24,7 +49,9 @@
       "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "reconfigure_successful": "[%key:common::config_flow::abort::reconfigure_successful%]",
+      "account_mismatch": "Central ID is not allowed to change"
     }
   }
 }
