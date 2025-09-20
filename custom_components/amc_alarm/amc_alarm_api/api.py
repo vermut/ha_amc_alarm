@@ -828,8 +828,8 @@ class AmcStatesParser:
 
 
 def safe_json_loads(value: str):
-    """Prova a convertire la stringa JSON in dict, 
-    altrimenti ritorna la stringa originale."""
+    """Try to convert the JSON string to dict,
+    otherwise return the original string."""
     if not isinstance(value, str):
         return value
     try:
