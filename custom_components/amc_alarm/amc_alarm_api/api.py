@@ -838,7 +838,7 @@ def safe_json_loads(value: str):
         return value
 
 def _find_pos_by_item_index(lst, index_value) -> int | None:
-    """Cerca in lst l'elemento con campo 'index' == index_value e ritorna la posizione, altrimenti None."""
+    """Search in lst for the element with field 'index' == index_value and return the position, otherwise None."""
     for i, item in enumerate(lst):
         if isinstance(item, dict):
             # confronto flessibile su stringa/int
