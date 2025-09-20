@@ -131,15 +131,15 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                 states = AmcStatesParser(api.raw_states())
                 centralId = user_input[CONF_CENTRAL_ID]
                 central : AmcCentralResponse = states.raw_states().get(centralId)
-                userPin = user_input.get(CONF_USER_PIN)
-                if not central:
-                    errors["base"] = "User login is fine but can't find AMC Central."
-                if userPin and not self.errors: # only for amcProtoVer >= 2
-                    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
-                    if states.users(centralId) is None:
-                        errors["base"] = "User PIN not allowed, users not received"
-                    elif not states.user_by_pin(centralId, userPin):
-                        errors["base"] = "User PIN not valid"
+                #userPin = user_input.get(CONF_USER_PIN)
+                #if not central:
+                #    errors["base"] = "User login is fine but can't find AMC Central."
+                #if userPin and not self.errors: # only for amcProtoVer >= 2
+                #    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
+                #    if states.users(centralId) is None:
+                #        errors["base"] = "User PIN not allowed, users not received"
+                #    elif not states.user_by_pin(centralId, userPin):
+                #        errors["base"] = "User PIN not valid"
 
                 if not self.errors:
                     unique_id = slugify("AMC %s" % (centralId))
@@ -188,7 +188,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_three(self, user_input=None):
         """Manage domain and entity filters."""
-        self._init_step(user_input, get_schema_options_three(user_input or self._entry_data))
+        self._init_step(user_input, get_schema_options_three(user_input or self._entry_data, self.api))
 
         if user_input is not None and not self.errors:
             return self._async_save_options()
@@ -208,7 +208,6 @@ def get_schema_config_user(config: dict = {}) -> dict:
         vol.Required(CONF_CENTRAL_ID, description=get_vol_descr(config, CONF_CENTRAL_ID)): str,
         vol.Required(CONF_CENTRAL_USERNAME, description=get_vol_descr(config, CONF_CENTRAL_USERNAME)): str,
         vol.Required(CONF_CENTRAL_PASSWORD, description=get_vol_descr(config, CONF_CENTRAL_PASSWORD)): str,
-        #vol.Optional(CONF_USER_PIN, description=get_vol_descr(config, CONF_USER_PIN)): str
     }
     return schema
 
@@ -234,9 +233,9 @@ def get_schema_options_two(config: dict = {}, api: SimplifiedAmcApi = None) -> d
         vol.Required(CONF_SCAN_INTERVAL, description=get_vol_descr(config, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): int,
     }
     
-    states = AmcStatesParser(api.raw_states())
-    users = states.users(api._central_id)
-    if users:
+    if api.pin_required:
+        states = AmcStatesParser(api.raw_states())
+        users = states.users(api._central_id)
         OPTIONS = {
             "-1": "Disable setters"
         }        
@@ -271,18 +270,24 @@ def get_schema_options_two(config: dict = {}, api: SimplifiedAmcApi = None) -> d
     return schema
 
 
-def get_schema_options_three(config: dict = {}) -> dict:
+def get_schema_options_three(config: dict = {}, api: SimplifiedAmcApi = None) -> dict:
     """Return a shcema configuration dict for HACS."""
     config = config or {}
     config = config if CONF_ACP_ZONE_PREFIX in config else None
-    schema = {        
+    schema = { }
+    if api.pin_required:        
+        schema.update({
+            vol.Optional(CONF_ACP_ARM_WITHOUT_PIN, description=get_vol_descr(config, CONF_ACP_ARM_WITHOUT_PIN, True)): bool,
+            vol.Optional(CONF_ACP_DISARM_WITHOUT_PIN, description=get_vol_descr(config, CONF_ACP_DISARM_WITHOUT_PIN, True)): bool,
+        })
+    schema.update({
         vol.Optional(CONF_ACP_GROUP_INCLUDED, description=get_vol_descr(config, CONF_ACP_GROUP_INCLUDED, True)): bool,
         vol.Optional(CONF_ACP_GROUP_PREFIX, description=get_vol_descr(config, CONF_ACP_GROUP_PREFIX, "Gruppo")): str,
         vol.Optional(CONF_ACP_AREA_INCLUDED, description=get_vol_descr(config, CONF_ACP_AREA_INCLUDED, True)): bool,
         vol.Optional(CONF_ACP_AREA_PREFIX, description=get_vol_descr(config, CONF_ACP_AREA_PREFIX, "Area")): str,
         vol.Optional(CONF_ACP_ZONE_INCLUDED, description=get_vol_descr(config, CONF_ACP_ZONE_INCLUDED, True)): bool,
         vol.Optional(CONF_ACP_ZONE_PREFIX, description=get_vol_descr(config, CONF_ACP_ZONE_PREFIX, "Zona")): str,        
-    }
+    })
     return schema
 
 

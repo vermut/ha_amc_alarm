@@ -7,16 +7,14 @@
           "password": "[%key:common::config_flow::data::password%]",
           "central_id": "AMC Central ID",
           "central_username": "AMC Central Login",
-          "central_password": "AMC Central Password",
-          "user_pin": "AMC User Pin"
+          "central_password": "AMC Central Password"
         },
         "data_description": {
           "email": "Email from webapp",
           "password": "Password from webapp",
           "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
           "central_username": "AMC Central Login",
-          "central_password": "AMC Central Password",
-          "user_pin": "Default User Pin for switch outputs"
+          "central_password": "AMC Central Password"
         }
       },
       "two": {

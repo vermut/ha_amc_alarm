@@ -18,6 +18,16 @@ class AmcCommands(StrEnum):
     MESSAGE_PLEASE_LOGIN = "not logged, please login"
 
 
+class AmcNotificationEntry(BaseModel):
+    name: str
+    category: int
+    serverDate: str
+
+class AmcNotification(BaseModel):
+    index: Literal[5]
+    name: str
+    list: list[AmcNotificationEntry]
+
 class AmcState(BaseModel):
     redalert: Optional[int] = None
     bit_showHide: int
@@ -36,6 +46,9 @@ class AmcEntry(BaseModel):
     name: str
     Id: int
     states: AmcState
+    group: Optional[int] = None
+    filters: Optional[List[str]] = None
+    notifications: Optional[list[AmcNotificationEntry]] = None
 
     def __str__(self) -> str:
         return f"({self.index}){self.name} [{'ARMED' if self.states.bit_armed else 'Disarm'} {'Open' if self.states.bit_opened else 'Closed'}]"
@@ -58,18 +71,6 @@ class AmcSystemState(BaseModel):
     index: Literal[4]
     name: str
     list: list[AmcSystemStateEntry]
-
-
-class AmcNotificationEntry(BaseModel):
-    name: str
-    category: int
-    serverDate: str
-
-
-class AmcNotification(BaseModel):
-    index: Literal[5]
-    name: str
-    list: list[AmcNotificationEntry]
 
 
 class AmcStatusEntry(BaseModel):

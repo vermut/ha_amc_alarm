@@ -78,7 +78,6 @@ class SimplifiedAmcApi:
         central_id,
         central_username,
         central_password,
-        #central_pin,
         async_state_updated_callback=None,
     ):
         self._messages: dict[str, CommandMessageInfo] = {}
@@ -93,7 +92,8 @@ class SimplifiedAmcApi:
         self._central_id = central_id
         self._central_username = central_username
         self._central_password = central_password
-        #self._central_pin = None
+        self.pin_required = False
+        self.amcProtoVer = None
 
         self._listen_task = None
         self._ws_state = ConnectionState.DISCONNECTED
@@ -395,6 +395,13 @@ class SimplifiedAmcApi:
 
 
                 if data.status == AmcCommands.STATUS_OK:
+                    if not self._raw_states_central_valid:
+                        #lo controllo solo la prima volta
+                        states = AmcStatesParser(data.centrals)
+                        self.amcProtoVer = data.centrals[self._central_id].amcProtoVer or 1
+                        if states.users(self._central_id) or self.amcProtoVer >= 2:
+                            self.pin_required = True
+
                     self.raw_states_json_model = json.loads(message.data)
                     self._raw_states = data.centrals
                     self._raw_states_central_valid = True
@@ -512,106 +519,6 @@ class SimplifiedAmcApi:
         
         return data
 
-
-    async def _process_message_patch(self, patch):
-        is_add = patch.op == "add"
-        is_replace = patch.op == "replace"
-        data_node_type = -1
-        obj_parent = None
-        obj = None
-        obj_is_central_data_list = False
-        obj_is_central_data_node = False
-        nodes = patch.path.split('/')
-        curr_node = ""
-        for node_index, node in enumerate(nodes):
-            node_is_last = node_index == len(nodes) - 1
-            if node == "":
-                continue
-            #per ora non è gestito bene notifications
-            if node == 'notifications':
-                return
-            curr_node = curr_node + "/" + node
-            if node == 'centrals' and obj == None:
-                obj = self._raw_states
-                continue
-            if not obj:
-                _LOGGER.warning("Can't process patch, obj is null: node: %s, data=%s" % (curr_node, patch))
-                return
-
-            if node_is_last and is_add:
-                #arrivano le notifiche in add
-                if len(obj) == 0:
-                    return
-                new_node = obj[0].copy()
-                new_node = self._update_model_from_dict(new_node, patch.value, False, curr_node)
-                obj.insert(0, new_node)
-                return
-            if node_is_last and not isinstance(patch.value, dict):
-                #esempio senza dict: data/5/unvisited", "value": "1" }
-                my_dictionary = {}
-                my_dictionary[node] = patch.value
-                self._update_model_from_dict(obj, my_dictionary, True, curr_node)
-                return
-
-            obj_parent = obj
-            if isinstance(obj, list) and node.isnumeric():
-                if data_node_type == -1 and obj_is_central_data_list:
-                    data_node_type = int(node)
-                #_LOGGER.debug("Getting list node %s: list count: %s, data=%s" % (curr_node, len(obj_parent), patch))
-                obj = None                
-                #gli accessi alle liste lavorano sugli index nel modello
-                for lst_item in obj_parent:
-                    if int(getattr(lst_item, "index", -1)) == int(node):
-                        obj = lst_item
-                        #_LOGGER.debug("Finded list item %s" % (obj))
-                        break
-            elif isinstance(obj, dict):
-                obj = obj[node]
-            else:
-                obj = getattr(obj, node)
-            if not obj:
-                _LOGGER.warning("Can't process patch, obj is null: node: %s, data=%s" % (curr_node, patch))
-                return
-            obj_is_central_data_node = obj_is_central_data_list
-            obj_is_central_data_list = node == "data" and isinstance(obj_parent, AmcCentralResponse)
-        
-        self._update_model_from_dict(obj, patch.value, True, curr_node)
-
-    def _update_model_from_dict(self, obj, new_values, exec_parse_obj, curr_node):
-        if isinstance(obj, dict):
-            obj.update(new_values)
-            return obj
-        else:
-            if exec_parse_obj:
-                try:
-                    new_obj = obj.parse_obj(new_values)
-                except Exception as e:
-                    new_obj = obj
-                    exec_parse_obj = False
-                    #_LOGGER.warning(
-                    #    "Can't process patch from server: %s, data=%s" % (e, message.data)
-                    #)                
-            else:
-                new_obj = obj
-            #_LOGGER.debug("Changing values: node: %s, patch=%s" % (obj_parent, patch.value))
-            #if patch.value["bit_opened"] != getattr(obj, "bit_opened", None):
-            #    _LOGGER.debug("Changing bit_opened attribute 1: node: %s, data=%s" % (obj.bit_opened, patch.value["bit_opened"]))
-                #obj1 = obj.parse_obj(patch.value)
-            for key,value in new_values.items():
-                if not hasattr(obj,key):
-                    continue
-                old_value = getattr(obj,key,None)
-                if old_value == value:
-                    continue
-                new_value = getattr(new_obj,key,None)
-                setattr(obj, key, new_value)
-                #if exec_parse_obj:
-                #    _LOGGER.debug("Changing %s %s attribute: old_value: %s, new_value=%s" % (curr_node, key, old_value, new_value))
-            return new_obj
-            #if hasattr(patch.value, "anomaly") and getattr(patch.value, "anomaly", None) != getattr(obj, "anomaly", None):
-            #    _LOGGER.debug("Changing anomaly attribute: node: %s, data=%s" % (obj_parent, patch.value))
-            #obj.parse_obj(patch.value)
-
     async def _login(self) -> CommandMessageInfo:
         self._sessionToken = None
         await self._change_state(ConnectionState.CONNECTED)
@@ -706,8 +613,17 @@ class SimplifiedAmcApi:
         )
 
     async def command_set_states(self, group: int, index: int, state: int, userPIN: str):
-        user=AmcStatesParser(self.raw_states()).user_by_pin(self._central_id, userPIN) if userPIN else None
-        userIdx=user.index if user else None
+        userIdx=None
+        if self.pin_required:
+            if not userPIN:
+                raise Exception("PIN not specified.")
+            user=AmcStatesParser(self.raw_states()).user_by_pin(self._central_id, userPIN)
+            if not user:
+                raise Exception("PIN not valid.")
+            userIdx=user.index
+        elif userPIN:
+            raise Exception("PIN not allowed.")
+        
         await self._send_message(
             AmcCommand(
                 command="setStates",

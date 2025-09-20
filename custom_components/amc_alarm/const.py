@@ -36,6 +36,9 @@ CONF_STATUS_AREA_PREFIX = "sensor_status_area_prefix"
 CONF_STATUS_ZONE_INCLUDED = "sensor_status_zone_included"
 CONF_STATUS_ZONE_PREFIX = "sensor_status_zone_prefix"
 
+CONF_ACP_ARM_WITHOUT_PIN = "alarm_arm_without_pin"
+CONF_ACP_DISARM_WITHOUT_PIN = "alarm_disarm_without_pin"
+
 CONF_ACP_GROUP_INCLUDED = "alarm_group_included"
 CONF_ACP_GROUP_PREFIX = "alarm_group_prefix"
 CONF_ACP_AREA_INCLUDED = "alarm_area_included"

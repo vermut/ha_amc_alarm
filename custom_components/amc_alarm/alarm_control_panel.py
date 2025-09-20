@@ -3,7 +3,7 @@ from __future__ import annotations
 from homeassistant.components.alarm_control_panel import (
     AlarmControlPanelEntity,
 )
-from homeassistant.components.alarm_control_panel import AlarmControlPanelEntityFeature, AlarmControlPanelState
+from homeassistant.components.alarm_control_panel import AlarmControlPanelEntityFeature, AlarmControlPanelState, CodeFormat
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -67,19 +67,36 @@ async def async_setup_entry(
 
 
 class AmcZone(AmcBaseEntity, AlarmControlPanelEntity):
-    _attr_code_arm_required = False
     _attr_supported_features = AlarmControlPanelEntityFeature.ARM_AWAY
 
     _amc_group_id = CentralDataSections.ZONES
 
+    @property
+    def code_format(self) -> CodeFormat | None:
+        if not self.coordinator.api.pin_required:
+            return None
+        if self.coordinator.get_config(CONF_ACP_ARM_WITHOUT_PIN, True) and self.coordinator.get_config(CONF_ACP_DISARM_WITHOUT_PIN, True):
+            return None
+        # PIN obbligatorio numerico
+        return CodeFormat.NUMBER
+    
+    @property
+    def code_arm_required(self) -> bool:
+        """Se True, il codice serve anche per ARM."""        
+        if self.coordinator.api.pin_required and not self.coordinator.get_config(CONF_ACP_ARM_WITHOUT_PIN, True):
+            return True
+        return False
+
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
         api = self.coordinator.api
-        code = self.coordinator.get_user_pin(code)
+        if not code and self.coordinator.api.pin_required and self.coordinator.get_config(CONF_ACP_ARM_WITHOUT_PIN, True):
+            code = self.coordinator.get_default_pin()
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, 1, code)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
         api = self.coordinator.api
-        code = self.coordinator.get_user_pin(code)
+        if not code and self.coordinator.api.pin_required and self.coordinator.get_config(CONF_ACP_DISARM_WITHOUT_PIN, True):
+            code = self.coordinator.get_default_pin()
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, 0, code)
 
     @property
@@ -97,18 +114,35 @@ class AmcZone(AmcBaseEntity, AlarmControlPanelEntity):
 
 
 class AmcAreaGroup(AmcBaseEntity, AlarmControlPanelEntity):
-    _attr_code_arm_required = False
     _attr_supported_features = AlarmControlPanelEntityFeature.ARM_AWAY
     _amc_group_id : int = None
 
+    @property
+    def code_format(self) -> CodeFormat | None:
+        if not self.coordinator.api.pin_required:
+            return None
+        if self.coordinator.get_config(CONF_ACP_ARM_WITHOUT_PIN, True) and self.coordinator.get_config(CONF_ACP_DISARM_WITHOUT_PIN, True):
+            return None
+        # PIN obbligatorio numerico
+        return CodeFormat.NUMBER
+    
+    @property
+    def code_arm_required(self) -> bool:
+        """Se True, il codice serve anche per ARM."""        
+        if self.coordinator.api.pin_required and not self.coordinator.get_config(CONF_ACP_ARM_WITHOUT_PIN, True):
+            return True
+        return False
+        
     async def async_alarm_arm_away(self, code: str | None = None) -> None:
-        api = self.coordinator.api
-        code = self.coordinator.get_user_pin(code)
+        api = self.coordinator.api        
+        if not code and self.coordinator.api.pin_required and self.coordinator.get_config(CONF_ACP_ARM_WITHOUT_PIN, True):
+            code = self.coordinator.get_default_pin()
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, 1, code)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
-        api = self.coordinator.api
-        code = self.coordinator.get_user_pin(code)
+        api = self.coordinator.api        
+        if not code and self.coordinator.api.pin_required and self.coordinator.get_config(CONF_ACP_DISARM_WITHOUT_PIN, True):
+            code = self.coordinator.get_default_pin()
         await api.command_set_states(self._amc_group_id, self._amc_entry.index, 0, code)
 
     @property
@@ -122,6 +156,7 @@ class AmcAreaGroup(AmcBaseEntity, AlarmControlPanelEntity):
                 return AlarmControlPanelState.PENDING
             case (0, 0):
                 return AlarmControlPanelState.DISARMED
+
 
 
 class AmcArea(AmcAreaGroup):

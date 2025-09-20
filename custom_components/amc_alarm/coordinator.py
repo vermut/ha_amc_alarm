@@ -99,10 +99,10 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             )
         return self._device_info
 
-    def get_config(self, key):
+    def get_config(self, key, default=None):
         if key in self.amcconfig:
             return self.amcconfig[key]
-        return None
+        return default
 
     async def api_new_data_received_callback(self):
         if self._callback_disabled:
@@ -153,12 +153,16 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed()
         return states
 
-    def get_user_pin(self, userPIN: str) -> str:
-        if not userPIN:
-            userIdx = self.get_config(CONF_USER_INDEX)
-            if userIdx > -1:
-                userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, userIdx)
-        return userPIN
+    def get_default_pin(self) -> str:
+        if not self.api.pin_required:
+            return None
+        userIdx = self.get_config(CONF_USER_INDEX)
+        if userIdx > -1:
+            userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, userIdx)
+            if not userPIN:
+                raise "Default PIN not found. try riconfigure component."
+            return userPIN
+        raise "Default user for get PIN not configured."
 
     def central_ids(self) -> list[str]:
         ids: list[str] = []
