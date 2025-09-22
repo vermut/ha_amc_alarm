@@ -4,10 +4,10 @@
         "@vermut"
     ],
     "config_flow": true,
-    "documentation": "https://github.com/davideciarmiello/ha_amc_alarm",
+    "documentation": "https://github.com/vermut/ha_amc_alarm",
     "domain": "amc_alarm",
     "iot_class": "cloud_push",
-    "issue_tracker": "https://github.com/davideciarmiello/ha_amc_alarm/issues",
+    "issue_tracker": "https://github.com/vermut/ha_amc_alarm/issues",
     "loggers": [
         "custom_components.amc_alarm"
     ],
