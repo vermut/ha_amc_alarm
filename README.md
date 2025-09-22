@@ -1,4 +1,4 @@
-AMC Alarm integration for HomeAssistant (davideciarmiello)
+AMC Alarm integration for HomeAssistant
 ===
 
       This has no official affiliation with AMC. Henceforth, it does not offer any guarantees, liability or promises that 
