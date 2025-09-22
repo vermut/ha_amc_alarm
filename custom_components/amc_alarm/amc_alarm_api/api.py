@@ -7,22 +7,7 @@ from datetime import datetime, timedelta
 import aiohttp
 from aiohttp import WSMessage
 
-from .amc_proto import (
-    AmcCommands,
-    AmcCommand,
-    AmcCommandResponse,
-    AmcLogin,
-    AmcCentral,
-    AmcCentralResponse,
-    CentralDataSections,
-    AmcPatch,
-    AmcData,
-    AmcUsers,
-    AmcUserEntry,
-    AmcEntry,
-    AmcNotificationEntry,
-    AmcNotification,
-)
+from .amc_proto import *
 from .exceptions import * #AmcException, ConnectionFailed, AuthenticationFailed, AmcCentralNotFoundException, AmcCentralStatusErrorException
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,7 +68,8 @@ class SimplifiedAmcApi:
         self._messages: dict[str, CommandMessageInfo] = {}
         self._raw_states: dict[str, AmcCentralResponse] = {}
         self._raw_states_central_valid : bool = False
-        self._raw_states_centralstatus_valid : bool = False
+        self._raw_states_centralstatus_valid : bool = False        
+        self.raw_entities: dict[str, AmcEntry] = {}
         self._send_message_retrying : bool = False
 
         self._ws_url = "wss://service.amc-cloud.com/ws/client"
@@ -109,10 +95,11 @@ class SimplifiedAmcApi:
         self._last_login_date = None
 
         self.raw_states_json_model = None
+        self.armed_any = False
 
         self._msg_quee_login : bool = False
         self._msg_quee_get_states : bool = False
-        
+
         # default asyncio puro
         self._create_task = asyncio.create_task
         self._create_future = asyncio.get_event_loop().create_future
@@ -358,7 +345,7 @@ class SimplifiedAmcApi:
                     _LOGGER.warning("Authorization failure: %s, data=%s" % (data.status, message.data))
                     self._ws_state_stop_exeception = AuthenticationFailed(data.status or message.data)
                     await self._change_state(ConnectionState.STOPPED, f"Authorization failure: : {data.status}")
-                    status.set_ko(self._ws_state_stop_exeception)                    
+                    status.set_ko(self._ws_state_stop_exeception)
             case AmcCommands.GET_STATES:
                 
                 #Websocket received data: {"command":"getStates","status":"error","message":"not logged, please login"}
@@ -392,7 +379,10 @@ class SimplifiedAmcApi:
                 #        await self._change_state(ConnectionState.STOPPED)
                 #        status.set_ko(self._ws_state_stop_exeception)
                 #        return
-
+                
+                #in wizard if use a wrong centralid, receive a response but with not avaiable
+                if data.status == AmcCommands.STATUS_OK and data.centrals[self._central_id].statusID <= 0:
+                    data.status = AmcCommands.STATUS_KO
 
                 if data.status == AmcCommands.STATUS_OK:
                     if not self._raw_states_central_valid:
@@ -407,6 +397,7 @@ class SimplifiedAmcApi:
                     self._raw_states_central_valid = True
                     self._raw_states_centralstatus_valid = True
                     self._failed_attempts = 0
+                    await self._set_calculated_states()
                     status.set_ok(data.centrals)
                     await self._change_state(ConnectionState.CENTRAL_OK)
                     await self._data_changed()
@@ -414,8 +405,7 @@ class SimplifiedAmcApi:
                     #{"command":"getStates","status":"ko","layout":null,"centrals":{"10EF60834A5436323003323338310000":{"statusID":-1,"status":"not available"}}}
                     statusID_new = data.centrals[self._central_id].statusID if self._central_id in data.centrals else None
                     status_new = data.centrals[self._central_id].status if self._central_id in data.centrals else None
-                    status_old = self._raw_states[self._central_id].status if self._central_id in self._raw_states else None
-                    status.set_ko(AmcCentralStatusErrorException("Central " + status_new) if status_new else AmcException(message.data))
+                    status_old = self._raw_states[self._central_id].status if self._central_id in self._raw_states else None                    
                     if status_new:
                         self._raw_states_centralstatus_valid = True
                     if status_new != status_old:
@@ -427,7 +417,15 @@ class SimplifiedAmcApi:
                         self.raw_states_json_model["centrals"][self._central_id]["status"] = status_new
                         self._raw_states[self._central_id].statusID = statusID_new
                         self._raw_states[self._central_id].status = status_new
-                    await self._change_state(ConnectionState.CENTRAL_KO, f"Central {status_new}")
+                    # {"command":"getStates","status":"ok","layout":null,"centrals":{"XXX":{"amcProtoVer":2,"realName":"X864V","statusID":0,"status":"wrong login X864V/4.10"}}}
+                    if status_new and status_new.startswith("wrong login"):                        
+                        _LOGGER.warning("Central Authorization failure: %s, data=%s" % (data.status, message.data))
+                        self._ws_state_stop_exeception = AuthenticationFailed(f"Central Authorization failure: {status_new}")
+                        await self._change_state(ConnectionState.STOPPED, f"Central Authorization failure: {status_new}")
+                        status.set_ko(self._ws_state_stop_exeception)
+                    else:
+                        await self._change_state(ConnectionState.CENTRAL_KO, f"Central {status_new}")
+                        status.set_ko(AmcCentralStatusErrorException("Central " + status_new) if status_new else AmcException(message.data))
                 else:
                     _LOGGER.warning("Error getting states: %s, data=%s" % (data.centrals, message.data))
                     status.set_ko(AmcException(message.data))
@@ -435,7 +433,7 @@ class SimplifiedAmcApi:
             case AmcCommands.APPLY_PATCH:
                 if self._ws_state != ConnectionState.CENTRAL_OK:
                     self._msg_quee_get_states = True
-                    return            
+                    return
                 try:
                     path_json_model = json.loads(message.data)
                     for patch in path_json_model["patch"]:
@@ -448,6 +446,7 @@ class SimplifiedAmcApi:
                     states_data = AmcCommandResponse.model_validate_json(states_json, strict=False)
                     #_LOGGER.warning("Applied patch: patch=%s, data=%s, old_data=%s" % (message.data, states_json, self.message_getstates_ok_data))
                     self._raw_states = states_data.centrals
+                    await self._set_calculated_states()
                     await self._data_changed()
                 except Exception as ee:
                     _LOGGER.warning("Can't process patch from server: %s, data=%s" % (ee, message.data))
@@ -455,6 +454,62 @@ class SimplifiedAmcApi:
             case _:
                 _LOGGER.warning("Unknown command received from server : %s, data=%s" % (data, message.data))
                 status.set_ko(f"Unknown command received from server : {data.command} - {message.data}")
+
+    async def _set_calculated_states(self):
+        state = AmcStatesParser(self.raw_states())
+        groups = state.groups(self._central_id).list
+        areas = state.areas(self._central_id).list
+        zones = state.zones(self._central_id).list
+        outputs = state.outputs(self._central_id).list
+        all_entries = [*zones, *areas, *groups]
+        for item in [*all_entries, *outputs]:
+            item.filter_id = f"{item.group}.{item.index}"
+            self.raw_entities[item.filter_id] = item
+        self.armed_any = False
+        for item in [*groups, *areas]:
+            item.arm_state = AmcAlarmState.Armed if item.states.bit_on == 1 else AmcAlarmState.Disarmed
+            self.armed_any = self.armed_any or item.arm_state == AmcAlarmState.Armed
+        for item in zones:
+            item.arm_state = AmcAlarmState.Armed if item.states.bit_armed == 1 and item.states.bit_on == 1 else AmcAlarmState.Disarmed
+        if self.armed_any:
+            any_arming = False
+            for item in areas:
+                #notification is only for area, then search parents group and childs zones
+                if item.arm_state == AmcAlarmState.Armed and self._is_state_arming(item):
+                    item.arm_state = AmcAlarmState.Arming
+                    any_arming = True
+                    id_str = item.filter_id
+                    filtered_entries = [ e for e in zones if e.filters and id_str in e.filters and e.arm_state == AmcAlarmState.Armed ] 
+                    for e in filtered_entries: 
+                        e.arm_state = AmcAlarmState.Arming
+
+            if any_arming:
+                for item in groups:
+                    if item.arm_state == AmcAlarmState.Armed:
+                        id_str = item.filter_id                
+                        if any(e.filters and id_str in e.filters and e.arm_state == AmcAlarmState.Arming for e in areas):
+                            item.arm_state = AmcAlarmState.Arming            
+
+            for item in all_entries:
+                if item.arm_state == AmcAlarmState.Arming and item.states.anomaly == 1:
+                    item.arm_state = AmcAlarmState.ArmingWithProblem
+                if item.arm_state == AmcAlarmState.Armed and item.states.anomaly == 1:
+                    item.arm_state = AmcAlarmState.Triggered
+        
+                
+    def _is_state_arming(self, entry):
+        if entry.notifications and len(entry.notifications) > 0:
+            msg = entry.notifications[0].name.strip()
+            name = entry.name.strip()
+            if msg in (f"Inserimento {name}", f"Inserimento Forzato {name}", f"Arming {name}"):
+                return True
+            if msg in (f"Inserimento Concluso {name}", f"Arming Finished {name}"):
+                return False
+        return False
+
+            
+
+
 
     async def _change_state(self, wsstate, detailmsg = None):
         if self._ws_state != wsstate or self._ws_state_detail != detailmsg:
@@ -640,6 +695,7 @@ class SimplifiedAmcApi:
 
     def raw_states(self) -> dict[str, AmcCentralResponse]:
         return self._raw_states
+    
 
 
 class AmcStatesParser:
@@ -738,7 +794,7 @@ class AmcStatesParser:
         if users:
             for key, value in users.items():
                 if value.index == userIndex:
-                    return key                    
+                    return key
         _LOGGER.warning("Cannot find User By Index: Index '%s'" % userIndex)
         return None
 

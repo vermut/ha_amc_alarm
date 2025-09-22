@@ -1,4 +1,4 @@
-from enum import StrEnum
+from enum import Enum, StrEnum
 from typing import Optional, List, Literal
 
 from pydantic import BaseModel
@@ -17,6 +17,12 @@ class AmcCommands(StrEnum):
     STATUS_NOT_AVAILABLE = "not available"
     MESSAGE_PLEASE_LOGIN = "not logged, please login"
 
+class AmcAlarmState(StrEnum):
+    Disarmed = "disarmed",
+    Arming = "arming",
+    ArmingWithProblem = "arming_with_problem",
+    Armed = "armed",
+    Triggered = "triggered"
 
 class AmcNotificationEntry(BaseModel):
     name: str
@@ -47,12 +53,16 @@ class AmcEntry(BaseModel):
     Id: int
     states: AmcState
     group: Optional[int] = None
+    #property calculated setted from api 
+    arm_state: Optional[AmcAlarmState] = None
+    """Restituisce group+index come stringa 'group.index'"""
+    filter_id: Optional[str] = None
     filters: Optional[List[str]] = None
     notifications: Optional[list[AmcNotificationEntry]] = None
 
     def __str__(self) -> str:
         return f"({self.index}){self.name} [{'ARMED' if self.states.bit_armed else 'Disarm'} {'Open' if self.states.bit_opened else 'Closed'}]"
-
+        
 
 class AmcData(BaseModel):
     index: Literal[0, 1, 2, 3]
