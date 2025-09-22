@@ -155,9 +155,10 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
 
     def get_user_pin(self, userPIN: str) -> str:
         if not userPIN:
-            userIdx = self.get_config(CONF_USER_INDEX)
-            if userIdx > -1:
-                userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, userIdx)
+            user_idx_str = self.get_config(CONF_USER_INDEX)
+            user_idx = int(user_idx_str) if user_idx_str and user_idx_str.isdigit() else -1            
+            if user_idx > -1:
+                userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, user_idx)
         return userPIN
 
     def central_ids(self) -> list[str]:
