@@ -99,10 +99,21 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             )
         return self._device_info
 
-    def get_config(self, key):
-        if key in self.amcconfig:
-            return self.amcconfig[key]
-        return None
+    def get_config(self, key, default=None, cast=None):
+        #config with cast
+        if not key in self.amcconfig:
+            return default
+        value = self.amcconfig[key]
+        if cast:
+            try:
+                if cast is bool:
+                    if isinstance(value, str):
+                        return value.lower() in ("1", "true", "yes")
+                    return bool(value)
+                return cast(value)
+            except (TypeError, ValueError):
+                return default
+        return value
 
     async def api_new_data_received_callback(self):
         if self._callback_disabled:
@@ -153,13 +164,17 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed()
         return states
 
-    def get_user_pin(self, userPIN: str) -> str:
-        if not userPIN:
-            user_idx_str = self.get_config(CONF_USER_INDEX)
-            user_idx = int(user_idx_str) if user_idx_str and user_idx_str.isdigit() else -1            
-            if user_idx > -1:
-                userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, user_idx)
-        return userPIN
+    def get_default_pin(self) -> str:
+        if not self.api.pin_required:
+            return None
+        user_idx_str = self.get_config(CONF_USER_INDEX)
+        user_idx = int(user_idx_str) if user_idx_str and user_idx_str.isdigit() else -1
+        if user_idx > -1:
+            userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, user_idx)
+            if not userPIN:
+                raise "Default PIN not found. try riconfigure component."
+            return userPIN
+        raise "Default user for get PIN not configured."
 
     def central_ids(self) -> list[str]:
         ids: list[str] = []

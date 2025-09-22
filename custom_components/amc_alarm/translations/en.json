@@ -19,16 +19,14 @@
                     "central_password": "AMC Central Password",
                     "central_username": "AMC Central Login",
                     "email": "Email",
-                    "password": "Password",
-                    "user_pin": "AMC User Pin"
+                    "password": "Password"
                 },
                 "data_description": {
                     "central_id": "AMC Central ID (looks like 553FC3730039FF21420030D8054E600)",
                     "central_password": "AMC Central Password",
                     "central_username": "AMC Central Login",
                     "email": "Email from webapp",
-                    "password": "Password from webapp",
-                    "user_pin": "Default User Pin for switch outputs"
+                    "password": "Password from webapp"
                 }
             },
             "two": {
@@ -48,18 +46,42 @@
                     "output_prefix": "Output Prefix"
                 },
                 "data_description": {
-                    "user_index": "Default User for switch outputs"
+                    "user_index": "Default User for change states"
                 }
             },
             "three": {
                 "title": "Set up AMC (3) - Alarm Control Panel entity",
                 "data": {
+                    "alarm_arm_without_pin": "Arm without enter pin",
+                    "alarm_disarm_without_pin": "Disarm without enter pin",
                     "alarm_group_included": "ACP Group Included",
                     "alarm_group_prefix": "ACP Group Prefix",
                     "alarm_area_included": "ACP Area Included",
                     "alarm_area_prefix": "ACP Area Prefix",
                     "alarm_zone_included": "ACP Zone Included",
                     "alarm_zone_prefix": "ACP Zone Prefix"
+                },
+                "data_description": {
+                    "alarm_arm_without_pin": "Use default user configured prev step",
+                    "alarm_disarm_without_pin": "Use default user configured prev step"
+                }
+            },
+            "four": {
+                "title": "Set up AMC (4) - General Alarm Control Panel",
+                "description": "Select the entities for each alarm mode for create multi-mode entity:",
+                "data": {
+                    "alarm_general_home_ids": "Entity for Armed Home",
+                    "alarm_general_away_ids": "Entity for Armed Away",
+                    "alarm_general_night_ids": "Entity for Armed Night",
+                    "alarm_general_vacation_ids": "Entity for Armed Vacation",
+                    "alarm_general_custom_bypass_ids": "Entity for Armed Custom Bypass"
+                },
+                "data_description": {
+                    "alarm_general_home_ids": "Entity for Armed Home",
+                    "alarm_general_away_ids": "Entity for Armed Away",
+                    "alarm_general_night_ids": "Entity for Armed Night",
+                    "alarm_general_vacation_ids": "Entity for Armed Vacation",
+                    "alarm_general_custom_bypass_ids": "Entity for Armed Custom Bypass"                    
                 }
             }
         }

@@ -21,6 +21,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from homeassistant.helpers import selector
 
 
 from .amc_alarm_api import SimplifiedAmcApi
@@ -100,7 +101,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
-        self._init_step(user_input, get_schema_config_user(user_input))
+        self._init_step(user_input, self.get_schema_config_user(user_input))
         
         if user_input is not None:
             api = SimplifiedAmcApi(
@@ -131,15 +132,15 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
                 states = AmcStatesParser(api.raw_states())
                 centralId = user_input[CONF_CENTRAL_ID]
                 central : AmcCentralResponse = states.raw_states().get(centralId)
-                userPin = user_input.get(CONF_USER_PIN)
-                if not central:
-                    errors["base"] = "User login is fine but can't find AMC Central."
-                if userPin and not self.errors: # only for amcProtoVer >= 2
-                    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
-                    if states.users(centralId) is None:
-                        errors["base"] = "User PIN not allowed, users not received"
-                    elif not states.user_by_pin(centralId, userPin):
-                        errors["base"] = "User PIN not valid"
+                #userPin = user_input.get(CONF_USER_PIN)
+                #if not central:
+                #    errors["base"] = "User login is fine but can't find AMC Central."
+                #if userPin and not self.errors: # only for amcProtoVer >= 2
+                #    #_LOGGER.debug("User pin: %s - %s" % (userPin, str(len(userPin))))
+                #    if states.users(centralId) is None:
+                #        errors["base"] = "User PIN not allowed, users not received"
+                #    elif not states.user_by_pin(centralId, userPin):
+                #        errors["base"] = "User PIN not valid"
 
                 if not self.errors:
                     unique_id = slugify("AMC %s" % (centralId))
@@ -179,7 +180,7 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_two(self, user_input=None):
         """Manage domain and entity filters."""
-        self._init_step(user_input, get_schema_options_two(user_input or self._entry_data, self.api))
+        self._init_step(user_input, self.get_schema_options_two(user_input or self._entry_data))
 
         if user_input is not None and not self.errors:
             return await self.async_step_three()
@@ -188,102 +189,166 @@ class AmcConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_three(self, user_input=None):
         """Manage domain and entity filters."""
-        self._init_step(user_input, get_schema_options_three(user_input or self._entry_data))
+        self._init_step(user_input, self.get_schema_options_three(user_input or self._entry_data))
+
+        if user_input is not None and not self.errors:
+            return await self.async_step_four()
+
+        return self._async_show_form_step("three")
+
+    async def async_step_four(self, user_input=None):
+        """Manage domain and entity filters."""
+        self._init_step(user_input, self.get_schema_options_four(user_input or self._entry_data))
 
         if user_input is not None and not self.errors:
             return self._async_save_options()
 
-        return self._async_show_form_step("three")
+        return self._async_show_form_step("four")
 
 
 
 
-def get_schema_config_user(config: dict = {}) -> dict:
-    """Return a shcema configuration dict for HACS."""
-    config = config if CONF_CENTRAL_USERNAME in (config or {}) else None
-    schema = {
-        #vol.Required(CONF_TITLE, description=get_vol_descr(config, CONF_TITLE)): str,
-        vol.Required(CONF_EMAIL, description=get_vol_descr(config, CONF_EMAIL)): str,
-        vol.Required(CONF_PASSWORD, description=get_vol_descr(config, CONF_PASSWORD)): str,
-        vol.Required(CONF_CENTRAL_ID, description=get_vol_descr(config, CONF_CENTRAL_ID)): str,
-        vol.Required(CONF_CENTRAL_USERNAME, description=get_vol_descr(config, CONF_CENTRAL_USERNAME)): str,
-        vol.Required(CONF_CENTRAL_PASSWORD, description=get_vol_descr(config, CONF_CENTRAL_PASSWORD)): str,
-        #vol.Optional(CONF_USER_PIN, description=get_vol_descr(config, CONF_USER_PIN)): str
-    }
-    return schema
+    def get_schema_config_user(self, config: dict = {}) -> dict:
+        """Return a shcema configuration dict for HACS."""
+        config = config if CONF_CENTRAL_USERNAME in (config or {}) else None
+        schema = {
+            #vol.Required(CONF_TITLE, description=get_vol_descr(config, CONF_TITLE)): str,
+            vol.Required(CONF_EMAIL, description=get_vol_descr(config, CONF_EMAIL)): str,
+            vol.Required(CONF_PASSWORD, description=get_vol_descr(config, CONF_PASSWORD)): str,
+            vol.Required(CONF_CENTRAL_ID, description=get_vol_descr(config, CONF_CENTRAL_ID)): str,
+            vol.Required(CONF_CENTRAL_USERNAME, description=get_vol_descr(config, CONF_CENTRAL_USERNAME)): str,
+            vol.Required(CONF_CENTRAL_PASSWORD, description=get_vol_descr(config, CONF_CENTRAL_PASSWORD)): str,
+        }
+        return schema
 
 
-def get_schema_options_init(config: dict = {}) -> dict:
-    """Return a shcema configuration dict for HACS."""
-    schema = get_schema_config_user(config=config)
-    #schema.pop(CONF_TITLE, "")
-    #schema.pop(CONF_CENTRAL_ID, "")
-    return schema
+    def get_schema_options_init(self, config: dict = {}) -> dict:
+        """Return a shcema configuration dict for HACS."""
+        schema = self.get_schema_config_user(config=config)
+        #schema.pop(CONF_TITLE, "")
+        #schema.pop(CONF_CENTRAL_ID, "")
+        return schema
 
 
-def get_schema_options_two(config: dict = {}, api: SimplifiedAmcApi = None) -> dict:
-    """Return a shcema configuration dict for HACS."""
-    config = config or {}
-    config = config if CONF_STATUS_ZONE_PREFIX in config else None
-    #if config and not config.get(CONF_SCAN_INTERVAL):
-    #    config[CONF_SCAN_INTERVAL] = DEFAULT_SCAN_INTERVAL
-    #domains = sorted(PLATFORMS)
-    schema = {
-        vol.Required(CONF_TITLE, description=get_vol_descr(config, CONF_TITLE)): str,
+    def get_schema_options_two(self, config: dict = {}) -> dict:
+        """Return a shcema configuration dict for HACS."""
+        config = config or {}
+        config = config if CONF_STATUS_ZONE_PREFIX in config else None
+        #if config and not config.get(CONF_SCAN_INTERVAL):
+        #    config[CONF_SCAN_INTERVAL] = DEFAULT_SCAN_INTERVAL
+        #domains = sorted(PLATFORMS)
+        schema = {
+            vol.Required(CONF_TITLE, description=get_vol_descr(config, CONF_TITLE)): str,
 
-        vol.Required(CONF_SCAN_INTERVAL, description=get_vol_descr(config, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): int,
-    }
-    
-    states = AmcStatesParser(api.raw_states())
-    users = states.users(api._central_id)
-    if users:
-        OPTIONS = {
-            "-1": "Disable setters"
-        }        
-        OPTIONS.update({
-            v.index: v.name.strip()
-            for k, v in users.items()
-            if k.strip().isdigit()  # tiene solo le chiavi composte da cifre
-        })
-        default = ""
-        if config and CONF_USER_PIN in config:
-            user = states.user_by_pin(api._central_id, config.get(CONF_USER_PIN))
-            if user:
-                default = user.index
+            vol.Required(CONF_SCAN_INTERVAL, description=get_vol_descr(config, CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)): int,
+        }
+        
+        api = self.api
+        if api.pin_required:
+            states = AmcStatesParser(api.raw_states())
+            users = states.users(api._central_id)
+            options = [
+                {"value": "-1", "label": "Disable setters"},
+                *[
+                    {"value": str(v.index), "label": v.name.strip()}
+                    for k, v in users.items()
+                    if k.strip().isdigit()
+                ],
+            ]
+            default = ""
+            if config and CONF_USER_PIN in config:
+                user = states.user_by_pin(api._central_id, config.get(CONF_USER_PIN))
+                if user:
+                    default = user.index
+            schema.update({
+                vol.Required(CONF_USER_INDEX, description=get_vol_descr(config, CONF_USER_INDEX, default)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        multiple=False,
+                    )
+                )
+            })
+
         schema.update({
-            vol.Required(CONF_USER_INDEX, description=get_vol_descr(config, CONF_USER_INDEX, default)): vol.In(OPTIONS)
+            vol.Optional(CONF_STATUS_SYSTEM_PREFIX, description=get_vol_descr(config, CONF_STATUS_SYSTEM_PREFIX, "Stato sistema")): str,
+            
+            vol.Optional(CONF_STATUS_GROUP_INCLUDED, description=get_vol_descr(config, CONF_STATUS_GROUP_INCLUDED, False)): bool,
+            vol.Optional(CONF_STATUS_GROUP_PREFIX, description=get_vol_descr(config, CONF_STATUS_GROUP_PREFIX, "Stato gruppo")): str,
+            vol.Optional(CONF_STATUS_AREA_INCLUDED, description=get_vol_descr(config, CONF_STATUS_AREA_INCLUDED, False)): bool,
+            vol.Optional(CONF_STATUS_AREA_PREFIX, description=get_vol_descr(config, CONF_STATUS_AREA_PREFIX, "Stato area")): str,
+            vol.Optional(CONF_STATUS_ZONE_INCLUDED, description=get_vol_descr(config, CONF_STATUS_ZONE_INCLUDED, True)): bool,
+            vol.Optional(CONF_STATUS_ZONE_PREFIX, description=get_vol_descr(config, CONF_STATUS_ZONE_PREFIX, "Stato zona")): str,
+            
+            vol.Optional(CONF_OUTPUT_INCLUDED, description=get_vol_descr(config, CONF_OUTPUT_INCLUDED, True)): bool,
+            vol.Optional(CONF_OUTPUT_PREFIX, description=get_vol_descr(config, CONF_OUTPUT_PREFIX, "Uscita")): str,
         })
 
-    schema.update({
-        vol.Optional(CONF_STATUS_SYSTEM_PREFIX, description=get_vol_descr(config, CONF_STATUS_SYSTEM_PREFIX, "Stato sistema")): str,
+        return schema
+
+
+    def get_schema_options_three(self, config: dict = {}) -> dict:
+        """Return a shcema configuration dict for HACS."""
+        config = config or {}
+        config = config if CONF_ACP_ZONE_PREFIX in config else None
+        schema = { }
+        api = self.api
+        if api.pin_required:
+            schema.update({
+                vol.Optional(CONF_ACP_ARM_WITHOUT_PIN, description=get_vol_descr(config, CONF_ACP_ARM_WITHOUT_PIN, True)): bool,
+                vol.Optional(CONF_ACP_DISARM_WITHOUT_PIN, description=get_vol_descr(config, CONF_ACP_DISARM_WITHOUT_PIN, True)): bool,
+            })
+        schema.update({
+            vol.Optional(CONF_ACP_GROUP_INCLUDED, description=get_vol_descr(config, CONF_ACP_GROUP_INCLUDED, True)): bool,
+            vol.Optional(CONF_ACP_GROUP_PREFIX, description=get_vol_descr(config, CONF_ACP_GROUP_PREFIX, "Gruppo")): str,
+            vol.Optional(CONF_ACP_AREA_INCLUDED, description=get_vol_descr(config, CONF_ACP_AREA_INCLUDED, True)): bool,
+            vol.Optional(CONF_ACP_AREA_PREFIX, description=get_vol_descr(config, CONF_ACP_AREA_PREFIX, "Area")): str,
+            vol.Optional(CONF_ACP_ZONE_INCLUDED, description=get_vol_descr(config, CONF_ACP_ZONE_INCLUDED, True)): bool,
+            vol.Optional(CONF_ACP_ZONE_PREFIX, description=get_vol_descr(config, CONF_ACP_ZONE_PREFIX, "Zona")): str,        
+        })
+        return schema
+
+    def get_schema_options_four(self, config: dict = {}) -> dict:
+        """Return a shcema configuration dict for HACS."""
+        config = config or {}
+        config = config if CONF_ACP_ZONE_PREFIX in config else None
+        schema = { }
+
+        ALARM_MODE_FIELDS = [
+            CONF_GACP_HOME_IDS,
+            CONF_GACP_AWAY_IDS,
+            CONF_GACP_NIGHT_IDS,
+            CONF_GACP_VACATION_IDS,
+            CONF_GACP_CUSTOM_BYPASS_IDS,
+        ]
         
-        vol.Optional(CONF_STATUS_GROUP_INCLUDED, description=get_vol_descr(config, CONF_STATUS_GROUP_INCLUDED, False)): bool,
-        vol.Optional(CONF_STATUS_GROUP_PREFIX, description=get_vol_descr(config, CONF_STATUS_GROUP_PREFIX, "Stato gruppo")): str,
-        vol.Optional(CONF_STATUS_AREA_INCLUDED, description=get_vol_descr(config, CONF_STATUS_AREA_INCLUDED, False)): bool,
-        vol.Optional(CONF_STATUS_AREA_PREFIX, description=get_vol_descr(config, CONF_STATUS_AREA_PREFIX, "Stato area")): str,
-        vol.Optional(CONF_STATUS_ZONE_INCLUDED, description=get_vol_descr(config, CONF_STATUS_ZONE_INCLUDED, True)): bool,
-        vol.Optional(CONF_STATUS_ZONE_PREFIX, description=get_vol_descr(config, CONF_STATUS_ZONE_PREFIX, "Stato zona")): str,
-        
-        vol.Optional(CONF_OUTPUT_INCLUDED, description=get_vol_descr(config, CONF_OUTPUT_INCLUDED, True)): bool,
-        vol.Optional(CONF_OUTPUT_PREFIX, description=get_vol_descr(config, CONF_OUTPUT_PREFIX, "Uscita")): str,
-    })
+        api = self.api
+        state = AmcStatesParser(api.raw_states())
+        groups = state.groups(api._central_id).list
+        areas = state.areas(api._central_id).list
+        options = [            
+            {
+                "value": str(v.filter_id),
+                "label": f"{'Area' if v in areas else 'Group'} {v.name.strip()}"
+            }
+            for v in [*groups, *areas]
+            if getattr(v, "filter_id", None) is not None
+        ]
 
-    return schema
+        schema = {}
+        for conf_key in ALARM_MODE_FIELDS:
+            #default = config.get(conf_key, [])
+            schema.update({
+                vol.Optional(conf_key, description=get_vol_descr(config, conf_key)): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        multiple=True,
+                    )
+                )
+            })
 
-
-def get_schema_options_three(config: dict = {}) -> dict:
-    """Return a shcema configuration dict for HACS."""
-    config = config or {}
-    config = config if CONF_ACP_ZONE_PREFIX in config else None
-    schema = {        
-        vol.Optional(CONF_ACP_GROUP_INCLUDED, description=get_vol_descr(config, CONF_ACP_GROUP_INCLUDED, True)): bool,
-        vol.Optional(CONF_ACP_GROUP_PREFIX, description=get_vol_descr(config, CONF_ACP_GROUP_PREFIX, "Gruppo")): str,
-        vol.Optional(CONF_ACP_AREA_INCLUDED, description=get_vol_descr(config, CONF_ACP_AREA_INCLUDED, True)): bool,
-        vol.Optional(CONF_ACP_AREA_PREFIX, description=get_vol_descr(config, CONF_ACP_AREA_PREFIX, "Area")): str,
-        vol.Optional(CONF_ACP_ZONE_INCLUDED, description=get_vol_descr(config, CONF_ACP_ZONE_INCLUDED, True)): bool,
-        vol.Optional(CONF_ACP_ZONE_PREFIX, description=get_vol_descr(config, CONF_ACP_ZONE_PREFIX, "Zona")): str,        
-    }
-    return schema
+        return schema
 
 
 
