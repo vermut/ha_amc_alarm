@@ -15,10 +15,10 @@ async def async_get_config_entry_diagnostics(
         for key, msg in coordinator.api._messages.items()
     }
     config = coordinator.amcconfig.copy()
-    config[CONF_CENTRAL_USERNAME] = "***"
-    config[CONF_CENTRAL_PASSWORD] = "***"
-    config[CONF_EMAIL] = "***"
-    config[CONF_PASSWORD] = "***"
+    #config[CONF_CENTRAL_USERNAME] = "***"
+    #config[CONF_CENTRAL_PASSWORD] = "***"
+    #config[CONF_EMAIL] = "***"
+    #config[CONF_PASSWORD] = "***"
     return {        
         "entry_id": entry.entry_id,
         "config": config,
