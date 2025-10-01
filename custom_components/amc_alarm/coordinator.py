@@ -74,7 +74,7 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
 
     @property
     def device_available(self):
-        return self.api._ws_state == ConnectionState.CENTRAL_OK
+        return self.api._device_available
 
     @property
     def device_info(self) -> DeviceInfo:

@@ -132,10 +132,12 @@ class AmcNotification(CoordinatorEntity, SensorEntity):
         await super().async_added_to_hass()
 
 
-class DeviceStatusSensor(SensorEntity):
+class DeviceStatusSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
     _attr_entity_category = (EntityCategory.DIAGNOSTIC)
 
     def __init__(self, coordinator):
+        super().__init__(coordinator)
         self.coordinator = coordinator
         self._attr_name = "Device Status"
         self._attr_unique_id = f"{coordinator.get_id_prefix()}_status"
@@ -160,6 +162,24 @@ class DeviceStatusSensor(SensorEntity):
         if det:
             res = f"{res} {det}"
         return res
+
+        
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        api = self.coordinator.api
+        central_data = api.raw_states()[api._central_id] if api.raw_states() and api._central_id in api.raw_states() else None
+        res = getattr(getattr(api, "_ws_state", None), "name", "unknown").replace("_", " ").capitalize()
+        det = getattr(api, "_ws_state_detail", None)
+        if det:
+            res = f"{res} {det}"
+        self._attr_native_value = res
+        super()._handle_coordinator_update()
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self._handle_coordinator_update()
+        await super().async_added_to_hass()
     
     @property
     def extra_state_attributes(self):
@@ -180,10 +200,12 @@ class DeviceStatusSensor(SensorEntity):
             #"raw_data": self.coordinator.data,
         }
     
-class DeviceStatusConnectivitySensor(SensorEntity):
+class DeviceStatusConnectivitySensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
     _attr_entity_category = (EntityCategory.DIAGNOSTIC)
 
     def __init__(self, coordinator):
+        super().__init__(coordinator)
         self.coordinator = coordinator
         self._attr_name = "Device Connectivity"
         self._attr_unique_id = f"{coordinator.get_id_prefix()}_connectivity"
@@ -198,6 +220,16 @@ class DeviceStatusConnectivitySensor(SensorEntity):
     def available(self):
         """Sempre disponibile, indipendentemente dallo stato del device."""
         return True
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        super()._handle_coordinator_update()
+
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to hass."""
+        self._handle_coordinator_update()
+        await super().async_added_to_hass()    
 
     @property
     def native_value(self):

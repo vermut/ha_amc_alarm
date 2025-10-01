@@ -37,24 +37,31 @@ class CommandMessageInfo():
     error: Exception = None
     result = None
     last_message_data : str = None 
+    msg: AmcCommand = None
+    request_time = None
+    response_time = None
 
     def set_ok(self, res = None):
         self.result = res
         self.state = CommandState.OK
-    def set_ko(self, err : Exception = None):
+    def set_ko(self, err : Exception | str = None):
+        if isinstance(err, str):
+            err = Exception(err)
         self.error = err if err else self.error
         self.state = CommandState.KO
 
     def as_dict(self):
         return {
             "key": self.key,
-            "last_message_data": safe_json_loads(self.last_message_data),
             "state": getattr(self.state, "name", str(self.state)),  # se enum → name
+            "request": self.msg,
+            "last_message_data": safe_json_loads(self.last_message_data),
             "error": str(self.error) if self.error else None,
         }
 
 class SimplifiedAmcApi:
     MAX_RETRY_DELAY = 600  # 10 min
+    DEVICE_OFFLINE_DELAY = 5 # set as offline only after 5 seconds, many time request to relogin
 
     def __init__(
         self,
@@ -82,6 +89,10 @@ class SimplifiedAmcApi:
         self.amcProtoVer = None
 
         self._listen_task = None
+        self._checks_task = None
+        self._checks_paused_to_date = None
+        self._device_online_to_date = None
+        self._device_available = False
         self._ws_state = ConnectionState.DISCONNECTED
         self._ws_state_detail = None
         self._aiohttp_session = None
@@ -102,16 +113,18 @@ class SimplifiedAmcApi:
 
         # default asyncio puro
         self._create_task = asyncio.create_task
-        self._create_future = asyncio.get_event_loop().create_future
+        self._event_loop = asyncio.get_event_loop()
+        self._create_future = self._event_loop.create_future
 
-    def set_task_factory(self, create_task, create_future):
+    def set_task_factory(self, create_task, event_loop):
         """Override quando sei dentro Home Assistant"""
         #client.set_task_factory(
         #    create_task=hass.async_create_task,
-        #    create_future=hass.loop.create_future
+        #    event_loop=hass.loop
         #)
         self._create_task = create_task
-        self._create_future = create_future
+        self._event_loop = event_loop
+        self._create_future = self._event_loop.create_future
 
 
     async def connect(self):
@@ -130,18 +143,40 @@ class SimplifiedAmcApi:
                     
             if not self._listen_task or self._listen_task.done():
                 await self._change_state(ConnectionState.STARTING)
-                #loop = asyncio.get_event_loop()
                 self._listen_task = self._create_task(self._listen())
             elif self._ws_state == ConnectionState.CONNECTED:
                 message = await self._login()
-            #elif self._last_login_date + timedelta(minutes=30) < datetime.now():
-            #    _LOGGER.debug("Executing new login after 30 minutes")
-            #    message = await self._login()
+
+            await self._listen_start()
         return message
 
     async def ensure_logged(self):
         message = await self._login_if_required()
         await self._get_message_info_result(message)
+
+    async def _ensure_central_ok(self, timeout=5):
+        if (self._ws_state == ConnectionState.CENTRAL_OK):
+            return
+        end_time = self._event_loop.time() + timeout
+        while True:
+            if (self._ws_state == ConnectionState.CENTRAL_OK):
+                return
+            if (self._ws_state == ConnectionState.STOPPED):
+                break
+            if self._event_loop.time() >= end_time:
+                break # timeout scaduto
+            await asyncio.sleep(0.1)
+        if self._ws_state_stop_exeception:
+            raise self._ws_state_stop_exeception
+            
+        # Error in task listener
+        if self._listen_task.done():
+            exc = self._listen_task.exception()
+            if exc:
+                raise exc
+
+        raise asyncio.TimeoutError(f"Error waiting state {state}. Current state {self._ws_state} {self._ws_state_detail}")
+            
 
     async def command_get_states_and_return(self) -> dict[str, AmcCentralResponse]:
         await self.ensure_logged()
@@ -164,6 +199,14 @@ class SimplifiedAmcApi:
                 await self._listen_task
             except asyncio.CancelledError:
                 pass
+            self._listen_task = None
+        if self._checks_task and not self._checks_task.done():
+            self._checks_task.cancel()
+            try:
+                await self._checks_task
+            except asyncio.CancelledError:
+                pass
+            self._checks_task = None
         if self._websocket:
             await self._websocket.close()
             self._websocket = None
@@ -183,11 +226,10 @@ class SimplifiedAmcApi:
             if not self._listen_task or self._listen_task.done():
                 await self._change_state(ConnectionState.STARTING)
                 self._listen_task = self._create_task(self._listen())
-            #elif self._ws_state == ConnectionState.CONNECTED:
-            #    message = await self._login()
-            #elif self._last_login_date + timedelta(minutes=30) < datetime.now():
-            #    _LOGGER.debug("Executing new login after 30 minutes")
-            #    message = await self._login()
+                
+            if not self._checks_task or self._checks_task.done():
+                self._checks_task = self._create_task(self._checks())
+
 
     async def _listen(self) -> None:
         """Listen to messages"""
@@ -208,13 +250,12 @@ class SimplifiedAmcApi:
             ) as ws_client:
                 self._websocket = ws_client
                 _LOGGER.debug("Connected to websocket %s" % self._ws_url)
+                self._checks_pause()
                 await self._change_state(ConnectionState.CONNECTED)
 
+                self._sessionToken = None  #can't reuse the last login, need to relogin after disconnection
+                self._msg_quee_login = True
                 self._msg_quee_get_states = True
-                if self._sessionToken:
-                    await self._change_state(ConnectionState.AUTHENTICATED)
-                else:
-                    self._msg_quee_login = True
                 await self._send_msg_quee()
 
                 message: WSMessage
@@ -222,10 +263,12 @@ class SimplifiedAmcApi:
                     if self._ws_state == ConnectionState.STOPPED:
                         break
 
+                    self._checks_pause()
+
                     if message.type == aiohttp.WSMsgType.ERROR:
                         #self._sessionToken = None
                         _LOGGER.warning(f"Error received from WS server: {message}")
-                        #self._cancel_pending_messages(Exception(f"Error received from WS server: {message}"))
+                        self._cancel_pending_messages(Exception(f"Error received from WS server: {message}"))
                         await self._change_state(ConnectionState.DISCONNECTED, f"Error received from WS server: {message}")
                         break
 
@@ -285,12 +328,47 @@ class SimplifiedAmcApi:
                 await self._change_state(ConnectionState.DISCONNECTED)
             self._ws_state_disconnecting = False
 
+
+    def _checks_pause(self):
+        self._checks_paused_to_date = self._event_loop.time() + 1
+
+    async def _checks(self) -> None:
+        """Execute background checks"""
+        while self._ws_state != ConnectionState.STOPPED:
+            p = self._checks_paused_to_date
+            await asyncio.sleep(0.05) #50ms
+            if p and self._checks_paused_to_date == p and p < self._event_loop.time():
+                try:
+                    if self._device_online_to_date:
+                        await self._set_device_available(True)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    _LOGGER.error("Error in task checks: %s" % (e))
+            await asyncio.sleep(1)
+
+    
     def _cancel_pending_messages(self, error : Exception):
         self._ws_state_disconnecting = True
         for id in self._messages:
             message = self._messages[id]
             if message.state == CommandState.STARTED:
                 message.set_ko(error)
+
+
+    async def _set_device_available(self, call_callback):
+        avaiable = self._ws_state == ConnectionState.CENTRAL_OK
+        if self._device_online_to_date:
+            if not avaiable and self._device_online_to_date >= self._event_loop.time():
+                avaiable = True
+            elif self._device_online_to_date < self._event_loop.time():
+                self._device_online_to_date = None
+
+        if avaiable != self._device_available:
+            self._device_available = avaiable
+            if self._callback and not self._callback_get_states_disabled and call_callback:
+                await self._callback()
+
 
     async def _send_msg_quee(self):
 
@@ -307,6 +385,28 @@ class SimplifiedAmcApi:
                 return
 
 
+    async def _change_state(self, wsstate, detailmsg = None):
+        if not detailmsg and self._ws_state == wsstate:
+            detailmsg = self._ws_state_detail
+        if self._ws_state != wsstate or self._ws_state_detail != detailmsg:
+            if wsstate in (ConnectionState.CENTRAL_OK, ConnectionState.STOPPED):
+                self._device_online_to_date = None
+            elif self._ws_state == ConnectionState.CENTRAL_OK:
+                self._device_online_to_date = self._event_loop.time() + self.DEVICE_OFFLINE_DELAY
+            self._ws_state = wsstate
+            self._ws_state_detail = detailmsg
+            await self._set_device_available(False)
+            if self._callback and not self._callback_get_states_disabled:
+                await self._callback()
+
+    async def _data_changed(self):
+        if self._callback and not self._callback_get_states_disabled:
+            if self._central_id in self._raw_states:
+                self._raw_states[self._central_id].returned = 0            
+            await self._set_device_available(False)
+            await self._callback()
+
+
 
 
     async def _process_message(self, message):
@@ -321,6 +421,7 @@ class SimplifiedAmcApi:
 
         status = self._get_message_info(data.command)
         status.last_message_data = message.data
+        status.response_time = self._event_loop.time()
 
         match data.command:
             case AmcCommands.CHECK_CENTRALS:
@@ -453,7 +554,14 @@ class SimplifiedAmcApi:
                     self._msg_quee_get_states = True                
             case _:
                 _LOGGER.warning("Unknown command received from server : %s, data=%s" % (data, message.data))
-                status.set_ko(f"Unknown command received from server : {data.command} - {message.data}")
+                status.set_ko(AmcException(f"Unknown command received from server : {data.command} - {message.data}"))
+
+
+    def _get_entity_state(self, group: int, index: int) -> bool:
+        filter_id = f"{group}.{index}"
+        item = self.raw_entities[filter_id]
+        return item.states.bit_on == 1
+        
 
     async def _set_calculated_states(self):
         state = AmcStatesParser(self.raw_states())
@@ -495,6 +603,16 @@ class SimplifiedAmcApi:
                     item.arm_state = AmcAlarmState.ArmingWithProblem
                 if item.arm_state == AmcAlarmState.Armed and item.states.anomaly == 1:
                     item.arm_state = AmcAlarmState.Triggered
+
+        for id in self._messages:
+            message = self._messages[id]
+            if message.state == CommandState.STARTED and message.msg and message.msg.command=="setStates":
+                new_state = self._get_entity_state(message.msg.group, message.msg.index)
+                if new_state == message.msg.state:
+                    message.response_time = self._event_loop.time()
+                    message.set_ok(new_state)
+
+
         
                 
     def _is_state_arming(self, entry):
@@ -506,23 +624,6 @@ class SimplifiedAmcApi:
             if msg in (f"Inserimento Concluso {name}", f"Arming Finished {name}"):
                 return False
         return False
-
-            
-
-
-
-    async def _change_state(self, wsstate, detailmsg = None):
-        if self._ws_state != wsstate or self._ws_state_detail != detailmsg:
-            self._ws_state = wsstate
-            self._ws_state_detail = detailmsg
-            if self._callback and not self._callback_get_states_disabled:
-                await self._callback()
-
-    async def _data_changed(self):
-        if self._callback and not self._callback_get_states_disabled:
-            if self._central_id in self._raw_states:
-                self._raw_states[self._central_id].returned = 0
-            await self._callback()
 
 
     async def _process_json_patch(self, data, p):
@@ -619,7 +720,10 @@ class SimplifiedAmcApi:
         if not status:
             status = self._get_message_info(msg.command)
         status.state = CommandState.STARTED
+        status.request_time = self._event_loop.time()
         status.error = None
+        status.msg = msg
+
         payload = ""
         try:
             if self._sessionToken:
@@ -646,10 +750,12 @@ class SimplifiedAmcApi:
                     
             status.state = CommandState.KO
             status.error = error
+            status.response_time = self._event_loop.time()
             raise error
         except Exception as error:
             status.state = CommandState.KO
             status.error = error
+            status.response_time = self._event_loop.time()
             raise error
         return status
 
@@ -679,6 +785,10 @@ class SimplifiedAmcApi:
         elif userPIN:
             raise Exception("PIN not allowed.")
         
+        #waiting for state, if is in reconnecting state, device is avaiable but is reconnecting
+        await self._ensure_central_ok()
+        status = self._get_message_info(f"setStates_{group}_{index}")
+
         await self._send_message(
             AmcCommand(
                 command="setStates",
@@ -690,8 +800,11 @@ class SimplifiedAmcApi:
                 state=True if state == 1 else False,
                 userPIN=userPIN,
                 userIdx=userIdx
-            )
+            ),
+            status
         )
+    
+
 
     def raw_states(self) -> dict[str, AmcCentralResponse]:
         return self._raw_states
