@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import json 
+import time
 from enum import Enum
 from datetime import datetime, timedelta
 
@@ -50,13 +51,15 @@ class CommandMessageInfo():
         self.error = err if err else self.error
         self.state = CommandState.KO
 
-    def as_dict(self):
+    def dict(self):
         return {
             "key": self.key,
             "state": getattr(self.state, "name", str(self.state)),  # se enum → name
             "request": self.msg,
             "last_message_data": safe_json_loads(self.last_message_data),
             "error": str(self.error) if self.error else None,
+            "request_time": loop_time_to_datetime(self.request_time),
+            "response_time": loop_time_to_datetime(self.response_time),
         }
 
 class SimplifiedAmcApi:
@@ -110,6 +113,11 @@ class SimplifiedAmcApi:
 
         self._msg_quee_login : bool = False
         self._msg_quee_get_states : bool = False
+
+        self._failed_attempts = 0
+        self._failed_attempts_last_msg = None
+        self._retry_delay = 0
+        self._retry_from_date = None
 
         # default asyncio puro
         self._create_task = asyncio.create_task
@@ -246,7 +254,7 @@ class SimplifiedAmcApi:
         try:
             #_LOGGER.debug("Logging into %s" % self._ws_url)
             async with self._aiohttp_session.ws_connect(
-                self._ws_url, heartbeat=5, autoping=True
+                self._ws_url, heartbeat=30, autoping=True
             ) as ws_client:
                 self._websocket = ws_client
                 _LOGGER.debug("Connected to websocket %s" % self._ws_url)
@@ -267,22 +275,18 @@ class SimplifiedAmcApi:
 
                     if message.type == aiohttp.WSMsgType.ERROR:
                         #self._sessionToken = None
-                        _LOGGER.warning(f"Error received from WS server: {message}")
-                        self._cancel_pending_messages(Exception(f"Error received from WS server: {message}"))
-                        await self._change_state(ConnectionState.DISCONNECTED, f"Error received from WS server: {message}")
+                        await self._manage_running_error("Error received from WS server", Exception(f"WSMessageError: {message}"))
                         break
 
                     if message.type == aiohttp.WSMsgType.CLOSED:
-                        _LOGGER.warning("AIOHTTP websocket connection closed")
-                        self._cancel_pending_messages(Exception("AIOHTTP websocket connection closed"))
-                        await self._change_state(ConnectionState.DISCONNECTED, "AIOHTTP websocket connection closed")
+                        await self._manage_running_error("AIOHTTP websocket connection closed", Exception("AIOHTTP websocket connection closed"))
                         break
 
                     if message.type == aiohttp.WSMsgType.TEXT:
                         _LOGGER.debug("Websocket received data: %s", message.data)
                         try:
                             await self._process_message(message)
-                        except Exception as error:                                
+                        except Exception as error:
                             _LOGGER.exception("Error processing message data: %s, data=%s" % (error, message.data))
 
                     if self._ws_state == ConnectionState.STOPPED or self._ws_state == ConnectionState.DISCONNECTED:
@@ -293,33 +297,11 @@ class SimplifiedAmcApi:
         except asyncio.CancelledError:
             pass
         except aiohttp.ClientResponseError as error:
-            self._cancel_pending_messages(error)
-            _LOGGER.error("Unexpected response received from server : %s", error)
-            await self._change_state(ConnectionState.DISCONNECTED, f"ClientResponseError: {error}")
+            await self._manage_running_error("Unexpected response received from server", error)
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError, aiohttp.client_exceptions.ClientConnectionResetError) as error:
-            err_type = type(error).__name__
-            self._cancel_pending_messages(error)
-            retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)            
-            self._failed_attempts += 1
-            if self._failed_attempts <= 2:
-                retry_delay = 0
-            _LOGGER.error("Websocket connection failed, retrying in %ds: %s", retry_delay, error)
-            await self._change_state(ConnectionState.DISCONNECTED, f"{err_type}: {error}")
-            await asyncio.sleep(retry_delay)
+            await self._manage_running_error("Websocket connection failed", error)
         except Exception as error:
-            err_type = type(error).__name__
-            self._cancel_pending_messages(error)
-            #exstr = str(error)
-            #if "'NoneType' object has no attribute 'connect'" in exstr:
-            #    _LOGGER.debug("Unexpected exception occurred: %s", error)
-            #    self._ws_state = ConnectionState.DISCONNECTED
-            if self._ws_state != ConnectionState.STOPPED and self._ws_state != ConnectionState.DISCONNECTED:
-                retry_delay = min(2**self._failed_attempts * 30, self.MAX_RETRY_DELAY)
-                self._failed_attempts += 1
-                _LOGGER.exception("Unexpected exception occurred, retrying in %ds: %s", retry_delay, error)
-                await self._change_state(ConnectionState.DISCONNECTED, f"{err_type}: {error}")
-                await asyncio.sleep(retry_delay)
-                
+            await self._manage_running_error("Unexpected exception occurred", error)
         finally:
             if self._websocket:
                 await self._websocket.close()
@@ -328,6 +310,52 @@ class SimplifiedAmcApi:
                 await self._change_state(ConnectionState.DISCONNECTED)
             self._ws_state_disconnecting = False
 
+    
+    async def _manage_running_error(self, msg, error) -> None:
+        err_type = type(error).__name__
+        err_msg = f"{err_type}: {error}"
+        self._cancel_pending_messages(error)
+        if self._ws_state in (ConnectionState.STOPPED, ConnectionState.DISCONNECTED):
+            return
+        #if the error is different, restart immediatly and log, ignoring multiple logs
+        if self._failed_attempts_last_msg != err_msg or self._failed_attempts == 0:
+            self._failed_attempts = 0
+            self._failed_attempts_last_msg = err_msg
+            _LOGGER.exception("%s: %s", msg, error)
+        self._failed_attempts += 1
+        self._retry_delay = self.get_retry_delay()
+        self._retry_from_date = datetime.now() + timedelta(seconds=self._retry_delay)
+        _LOGGER.debug("%s, retrying in %ss: %s", msg, self._retry_delay, error)
+        await self._change_state(ConnectionState.DISCONNECTED, err_msg)
+        await asyncio.sleep(self._retry_delay)
+        self._retry_from_date = None
+
+        
+
+    def get_retry_delay(self) -> int:
+        """
+        Compute the retry delay based on the number of failed attempts.
+        Rules:
+        - First 10 attempts: retry every 1 second.
+        - Next 10 minutes (20 attempts): retry every 30 seconds.
+        - After that: exponential backoff starting from 60 seconds,
+        doubling each time until reaching max_backoff.
+
+        Args:
+            failed_attempts (int): Number of consecutive failed attempts.
+            max_backoff (int): Maximum allowed delay in seconds (default: 3600 = 1h).
+
+        Returns:
+            int: Delay in seconds before the next retry.
+        """
+        if self._failed_attempts <= 2:
+            return 0
+        if self._failed_attempts <= 10:
+            return 1
+        if self._failed_attempts <= 10 + (10 * 60) // 30:
+            return 30
+        backoff_attempts = self._failed_attempts - (10 + 20)
+        return min(2**backoff_attempts * 60, self.MAX_RETRY_DELAY)
 
     def _checks_pause(self):
         self._checks_paused_to_date = self._event_loop.time() + 1
@@ -414,10 +442,22 @@ class SimplifiedAmcApi:
             #parse_raw and parse_file are now deprecated. In Pydantic V2
             data = AmcCommandResponse.model_validate_json(message.data, strict=False)
         except ValueError as e:
-            _LOGGER.warning(
-                "Can't process data from server: %s, data=%s" % (e, message.data)
-            )
-            return
+            failed = True
+            try:                
+                #same times arrive a wrong GET_STATES response message with only centrals!
+                if message.data and message.data.startswith(f'{{"{self._central_id}":') and "statusID" in message.data:
+                    new_data = '{"command": "getStates","status": "ok","layout": null,"centrals": ' + message.data + '}'
+                    data = AmcCommandResponse.model_validate_json(new_data, strict=False)
+                    failed = False
+                    message = WSMessage(message.type, new_data, message.extra)
+                    _LOGGER.warning("Fixed getStates message with only centrals received. data=%s" % message.data)
+            except Exception as error_fix:
+                _LOGGER.exception("Error fixing message data: %s, data=%s" % (error_fix, message.data))
+            if failed:
+                _LOGGER.warning(
+                    "Can't process data from server: %s, data=%s" % (e, message.data)
+                )
+                return
 
         status = self._get_message_info(data.command)
         status.last_message_data = message.data
@@ -438,7 +478,6 @@ class SimplifiedAmcApi:
                 if data.status == AmcCommands.STATUS_LOGGED_IN:
                     _LOGGER.debug("Authorized")
                     self._sessionToken = data.user.token
-                    self._failed_attempts = 0
                     await self._change_state(ConnectionState.AUTHENTICATED)
                     status.set_ok(data.user.token)
                     self._msg_quee_get_states = True
@@ -804,10 +843,21 @@ class SimplifiedAmcApi:
             status
         )
     
-
-
     def raw_states(self) -> dict[str, AmcCentralResponse]:
         return self._raw_states
+
+    def _get_status_info_dict(self):
+        central_data = self._raw_states[self._central_id] if self._raw_states and self._central_id in self._raw_states else None
+        return {
+            "ws_state": getattr(self._ws_state, "name", "unknown"),
+            "ws_state_detail": self._ws_state_detail,
+            "central_status": getattr(central_data, "status", None),
+            "central_statusID": getattr(central_data, "statusID", None),
+            "failed_attempts": self._failed_attempts,
+            "retry_delay_seconds": self._retry_delay,
+            "retry_from_date": self._retry_from_date
+        }
+
     
 
 
@@ -931,3 +981,24 @@ def _find_pos_by_item_index(lst, index_value) -> int | None:
                 return i
     return None
 
+
+def loop_time_to_datetime(loop_time: float) -> datetime:
+    if not loop_time:
+        return loop_time
+    """
+    Convert an asyncio event loop time (loop.time()) to a real datetime.
+    
+    Args:
+        loop_time (float): The timestamp from loop.time()
+    
+    Returns:
+        datetime: Corresponding datetime in local time
+    """
+    # Calcola l'offset tra monotonic e tempo reale
+    offset = time.time() - time.monotonic()
+    
+    # Trasforma loop_time in timestamp UNIX
+    timestamp = loop_time + offset
+    
+    # Restituisce il datetime leggibile
+    return datetime.fromtimestamp(timestamp)
