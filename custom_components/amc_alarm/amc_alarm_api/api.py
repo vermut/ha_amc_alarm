@@ -951,7 +951,7 @@ class AmcStatesParser:
         
     def user_pin_by_index(self, central_id: str, userIndex: int) -> AmcUserEntry:        
         #_LOGGER.debug("user_by_pin: Pin '%s'" % userPin)
-        if not userIndex or userIndex < 0:
+        if userIndex is None or userIndex < 0:
             return None        
         users = self.users(central_id)        
         if users:
