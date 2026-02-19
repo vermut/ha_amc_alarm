@@ -172,9 +172,9 @@ class AmcDataUpdateCoordinator(DataUpdateCoordinator):
         if user_idx > -1:
             userPIN = self.data_parsed.user_pin_by_index(self.api._central_id, user_idx)
             if not userPIN:
-                raise "Default PIN not found. try riconfigure component."
+                raise AmcException("Default PIN not found. try riconfigure component. UserIndex: '%s'" % user_idx_str)
             return userPIN
-        raise "Default user for get PIN not configured."
+        raise AmcException("Default user for get PIN not configured. UserIndex: '%s'" % user_idx_str)
 
     def central_ids(self) -> list[str]:
         ids: list[str] = []
