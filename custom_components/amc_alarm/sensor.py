@@ -38,22 +38,28 @@ async def async_setup_entry(
         return lambda: coordinator.data_parsed.system_status(_central_id, index)
 
     for central_id in coordinator.central_ids():
-        sensors.append(
-            AmcSignalSensor(
-                coordinator=coordinator,
-                amc_entry_fn=_system_status(central_id, SystemStatusDataSections.GSM_SIGNAL),
-                name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
-                id_prefix="system_status_",
+        # Only create the entities the central actually reports: a panel without a
+        # GSM module has no signal entry, and system_status() returns None for it.
+        signal_fn = _system_status(central_id, SystemStatusDataSections.GSM_SIGNAL)
+        if signal_fn() is not None:
+            sensors.append(
+                AmcSignalSensor(
+                    coordinator=coordinator,
+                    amc_entry_fn=signal_fn,
+                    name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
+                    id_prefix="system_status_",
+                )
             )
-        )
-        sensors.append(
-            AmcBatterySensor(
-                coordinator=coordinator,
-                amc_entry_fn=_system_status(central_id, SystemStatusDataSections.BATTERY_STATUS),
-                name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
-                id_prefix="system_status_",
+        battery_fn = _system_status(central_id, SystemStatusDataSections.BATTERY_STATUS)
+        if battery_fn() is not None:
+            sensors.append(
+                AmcBatterySensor(
+                    coordinator=coordinator,
+                    amc_entry_fn=battery_fn,
+                    name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
+                    id_prefix="system_status_",
+                )
             )
-        )
 
         sensors.append(
             AmcNotification(
