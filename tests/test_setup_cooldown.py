@@ -177,6 +177,78 @@ class SetupCooldownTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(caught.exception, original_error)
         self.assertTrue(FakeCoordinator.instances[0].api.disconnected)
         self.assertIsNone(self.entry.runtime_data)
+        self.assertEqual(
+            self.hass.data["amc_alarm"]["_login_cooldowns"], {}
+        )
+
+    async def test_unload_preserves_active_throttle_for_account_only(self):
+        async def success(coordinator):
+            coordinator.api._login_throttled_until = 600.0
+
+        FakeCoordinator.refresh = success
+        self.hass.config_entries = types.SimpleNamespace(
+            async_forward_entry_setups=lambda *args: asyncio.sleep(0),
+            async_unload_platforms=lambda *args: asyncio.sleep(0, result=True),
+        )
+        self.entry.async_on_unload = lambda callback: None
+        self.entry.add_update_listener = lambda callback: None
+        self.assertTrue(await integration.async_setup_entry(self.hass, self.entry))
+
+        self.now = 150.0
+        self.assertTrue(await integration.async_unload_entry(self.hass, self.entry))
+        self.assertTrue(FakeCoordinator.instances[0].api.disconnected)
+        self.assertEqual(
+            self.hass.data["amc_alarm"]["_login_cooldowns"]["user@example.com"],
+            600.0,
+        )
+
+        with self.assertRaises(ConfigEntryNotReady):
+            await integration.async_setup_entry(self.hass, self.entry)
+        self.assertEqual(len(FakeCoordinator.instances), 1)
+
+        other_account = types.SimpleNamespace(
+            version=2, data={"email": "other@example.com"}, runtime_data=None,
+            async_on_unload=lambda callback: None,
+            add_update_listener=lambda callback: None,
+        )
+        self.assertTrue(
+            await integration.async_setup_entry(self.hass, other_account)
+        )
+        self.assertEqual(len(FakeCoordinator.instances), 2)
+
+    async def test_concurrent_failures_keep_later_account_deadline(self):
+        release = [asyncio.Event(), asyncio.Event()]
+        started = asyncio.Queue()
+
+        async def throttle(coordinator):
+            index = FakeCoordinator.instances.index(coordinator)
+            await started.put(index)
+            await release[index].wait()
+            coordinator.api._login_throttled_until = 900.0 if index == 0 else 700.0
+            raise ConfigEntryNotReady("login throttled")
+
+        FakeCoordinator.refresh = throttle
+        first = asyncio.create_task(integration.async_setup_entry(self.hass, self.entry))
+        second_entry = types.SimpleNamespace(
+            version=2, data={"email": "user@example.com"}, runtime_data=None,
+        )
+        second = asyncio.create_task(
+            integration.async_setup_entry(self.hass, second_entry)
+        )
+        await started.get()
+        await started.get()
+
+        release[0].set()
+        with self.assertRaises(ConfigEntryNotReady):
+            await first
+        release[1].set()
+        with self.assertRaises(ConfigEntryNotReady):
+            await second
+
+        self.assertEqual(
+            self.hass.data["amc_alarm"]["_login_cooldowns"]["user@example.com"],
+            900.0,
+        )
 
 
 if __name__ == "__main__":

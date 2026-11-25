@@ -16,6 +16,27 @@ from .const import *
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _preserve_login_cooldown(hass: HomeAssistant, account: str, api) -> None:
+    """Retain the latest active throttle deadline for an account."""
+    api_deadline = getattr(api, "_login_throttled_until", None)
+    if api_deadline is None:
+        return
+
+    loop = getattr(hass, "loop", asyncio.get_running_loop())
+    cooldowns = hass.data.setdefault(DOMAIN, {}).setdefault("_login_cooldowns", {})
+    now = loop.time()
+    deadlines = [
+        deadline
+        for deadline in (cooldowns.get(account), api_deadline)
+        if deadline is not None and deadline > now
+    ]
+    if deadlines:
+        cooldowns[account] = max(deadlines)
+    else:
+        cooldowns.pop(account, None)
+
+
 # @ asyncio.coroutine
 async def async_setup(hass: HomeAssistant, config: ConfigType):
     """Set up from config."""
@@ -60,9 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         await coordinator.async_config_entry_first_refresh()
     except BaseException:
-        throttled_until = getattr(coordinator.api, "_login_throttled_until", None)
-        if throttled_until is not None:
-            cooldowns[account] = throttled_until
+        _preserve_login_cooldown(hass, account, coordinator.api)
         try:
             await coordinator.api.disconnect()
         except BaseException:
@@ -89,6 +108,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        _preserve_login_cooldown(hass, (entry.data or {}).get(CONF_EMAIL), coordinator.api)
         await coordinator.api.disconnect()
         entry.runtime_data = None
 
