@@ -38,22 +38,29 @@ async def async_setup_entry(
         return lambda: coordinator.data_parsed.system_status(_central_id, index)
 
     for central_id in coordinator.central_ids():
-        sensors.append(
-            AmcSignalSensor(
-                coordinator=coordinator,
-                amc_entry_fn=_system_status(central_id, SystemStatusDataSections.GSM_SIGNAL),
-                name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
-                id_prefix="system_status_",
+        # Create optional system-status entities only when the panel reports them.
+        status_entries = states.system_statuses(central_id).list
+        status_indices = {entry.index for entry in status_entries}
+        if SystemStatusDataSections.GSM_SIGNAL in status_indices:
+            signal_fn = _system_status(central_id, SystemStatusDataSections.GSM_SIGNAL)
+            sensors.append(
+                AmcSignalSensor(
+                    coordinator=coordinator,
+                    amc_entry_fn=signal_fn,
+                    name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
+                    id_prefix="system_status_",
+                )
             )
-        )
-        sensors.append(
-            AmcBatterySensor(
-                coordinator=coordinator,
-                amc_entry_fn=_system_status(central_id, SystemStatusDataSections.BATTERY_STATUS),
-                name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
-                id_prefix="system_status_",
+        if SystemStatusDataSections.BATTERY_STATUS in status_indices:
+            battery_fn = _system_status(central_id, SystemStatusDataSections.BATTERY_STATUS)
+            sensors.append(
+                AmcBatterySensor(
+                    coordinator=coordinator,
+                    amc_entry_fn=battery_fn,
+                    name_prefix=coordinator.get_config(CONF_STATUS_SYSTEM_PREFIX),
+                    id_prefix="system_status_",
+                )
             )
-        )
 
         sensors.append(
             AmcNotification(
