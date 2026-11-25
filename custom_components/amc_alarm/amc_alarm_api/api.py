@@ -65,6 +65,12 @@ class CommandMessageInfo():
 class SimplifiedAmcApi:
     MAX_RETRY_DELAY = 600  # 10 min
     DEVICE_OFFLINE_DELAY = 5 # set as offline only after 5 seconds, many time request to relogin
+    # Deliberately long. On the panel this was found on, the throttling outlived
+    # 94 minutes of complete silence from the client, so a short floor only keeps
+    # feeding it. The generic backoff cannot carry this on its own either, because
+    # _failed_attempts resets to 0 whenever the error message changes and a
+    # struggling cloud alternates 502, 503 and timeouts.
+    LOGIN_THROTTLED_RETRY_DELAY = 600  # 10 min
 
     def __init__(
         self,
@@ -118,6 +124,7 @@ class SimplifiedAmcApi:
         self._failed_attempts_last_msg = None
         self._retry_delay = 0
         self._retry_from_date = None
+        self._login_throttled_until = None
 
         # default asyncio puro
         self._create_task = asyncio.create_task
@@ -311,7 +318,7 @@ class SimplifiedAmcApi:
             self._ws_state_disconnecting = False
 
     
-    async def _manage_running_error(self, msg, error) -> None:
+    async def _manage_running_error(self, msg, error, min_delay: int = 0) -> None:
         err_type = type(error).__name__
         err_msg = f"{err_type}: {error}"
         self._cancel_pending_messages(error)
@@ -323,7 +330,10 @@ class SimplifiedAmcApi:
             self._failed_attempts_last_msg = err_msg
             _LOGGER.exception("%s: %s", msg, error)
         self._failed_attempts += 1
-        self._retry_delay = self.get_retry_delay()
+        self._retry_delay = max(self.get_retry_delay(), min_delay)
+        if isinstance(error, LoginThrottled):
+            # Keep a monotonic deadline for setup retries using a fresh API.
+            self._login_throttled_until = self._event_loop.time() + self._retry_delay
         self._retry_from_date = datetime.now() + timedelta(seconds=self._retry_delay)
         _LOGGER.debug("%s, retrying in %ss: %s", msg, self._retry_delay, error)
         await self._change_state(ConnectionState.DISCONNECTED, err_msg)
@@ -356,6 +366,11 @@ class SimplifiedAmcApi:
             return 30
         backoff_attempts = self._failed_attempts - (10 + 20)
         return min(2**backoff_attempts * 60, self.MAX_RETRY_DELAY)
+
+    @staticmethod
+    def _is_login_throttled(status: str | None) -> bool:
+        """Whether a rejected login is a transient rate limit rather than a bad credential."""
+        return bool(status) and AmcCommands.STATUS_TOO_MANY_REQUESTS in status.lower()
 
     def _checks_pause(self):
         self._checks_paused_to_date = self._event_loop.time() + 1
@@ -481,6 +496,17 @@ class SimplifiedAmcApi:
                     await self._change_state(ConnectionState.AUTHENTICATED)
                     status.set_ok(data.user.token)
                     self._msg_quee_get_states = True
+                elif self._is_login_throttled(data.status):
+                    # The cloud is rate limiting us, the credentials are fine. Go
+                    # through the usual backoff instead of stopping: stopping asks
+                    # the user to re-authenticate with credentials that still work.
+                    error = LoginThrottled(data.status or message.data)
+                    status.set_ko(error)
+                    await self._manage_running_error(
+                        "Login throttled by the server",
+                        error,
+                        min_delay=self.LOGIN_THROTTLED_RETRY_DELAY,
+                    )
                 else:
                     _LOGGER.warning("Authorization failure: %s, data=%s" % (data.status, message.data))
                     self._ws_state_stop_exeception = AuthenticationFailed(data.status or message.data)
