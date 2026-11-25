@@ -6,6 +6,7 @@ cloud rejects on the credentials must still stop the client and raise
 AuthenticationFailed, so Home Assistant starts the re-auth flow.
 """
 
+import asyncio
 import sys
 import types
 import unittest
@@ -17,7 +18,7 @@ if str(_PACKAGE_ROOT) not in sys.path:
     sys.path.insert(0, str(_PACKAGE_ROOT))
 
 from amc_alarm_api.api import ConnectionState, SimplifiedAmcApi  # noqa: E402
-from amc_alarm_api.exceptions import AuthenticationFailed  # noqa: E402
+from amc_alarm_api.exceptions import AuthenticationFailed, LoginThrottled  # noqa: E402
 
 
 def _frame(payload: str) -> types.SimpleNamespace:
@@ -54,7 +55,43 @@ class LoginRejectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(
             self.api._retry_delay, SimplifiedAmcApi.LOGIN_THROTTLED_RETRY_DELAY
         )
+        self.assertIsInstance(
+            self.api._get_message_info("loginUser").error, LoginThrottled
+        )
+        self.assertAlmostEqual(
+            self.api._login_throttled_until,
+            self.api._event_loop.time() + self.api._retry_delay,
+            places=2,
+        )
         self.assertEqual(self.slept, [self.api._retry_delay])
+
+    async def test_listener_throttle_wait_is_cancelled_by_disconnect(self):
+        sleep_started = asyncio.Event()
+
+        async def blocking_sleep(_delay):
+            sleep_started.set()
+            await asyncio.Event().wait()
+
+        payload = _frame('{"command": "loginUser", "status": "Too Many Requests"}')
+        with mock.patch("asyncio.sleep", new=blocking_sleep):
+            listener_task = asyncio.create_task(self.api._process_message(payload))
+            self.api._listen_task = listener_task
+            await asyncio.wait_for(sleep_started.wait(), timeout=1)
+
+            login = self.api._get_message_info("loginUser")
+            self.assertEqual(login.state.name, "KO")
+            self.assertIsInstance(login.error, LoginThrottled)
+            self.assertIsNotNone(self.api._login_throttled_until)
+            self.assertAlmostEqual(
+                self.api._login_throttled_until,
+                self.api._event_loop.time() + self.api._retry_delay,
+                places=1,
+            )
+
+            await self.api.disconnect()
+            self.assertTrue(listener_task.done())
+            self.assertIsNone(self.api._listen_task)
+
 
     async def test_rejected_credentials_still_stop_the_client(self):
         await self._handle('{"command": "loginUser", "status": "Wrong credentials"}')

@@ -29,11 +29,25 @@ async def async_setup(hass: HomeAssistant, config: ConfigType):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if hass.data.get(DOMAIN) is None:
-        hass.data.setdefault(DOMAIN, {})
+        hass.data[DOMAIN] = {}
 
     if entry.version < CONF_CURR_VERSION:
         _LOGGER.error("Error async_setup_entry config entry from version %s", entry.version)
         return False
+
+    # Setup retries create a fresh API object, so retain login throttling at the
+    # account level rather than on that short-lived object.
+    account = (entry.data or {}).get(CONF_EMAIL)
+    loop = getattr(hass, "loop", asyncio.get_running_loop())
+    cooldowns = hass.data[DOMAIN].setdefault("_login_cooldowns", {})
+    retry_at = cooldowns.get(account)
+    if retry_at is not None:
+        remaining = retry_at - loop.time()
+        if remaining > 0:
+            raise ConfigEntryNotReady(
+                f"AMC login is rate limited; retry in {remaining:.0f} seconds"
+            )
+        cooldowns.pop(account, None)
 
     coordinator = AmcDataUpdateCoordinator(hass, entry=entry)
 
@@ -43,7 +57,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = coordinator
     
     # https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except BaseException:
+        throttled_until = getattr(coordinator.api, "_login_throttled_until", None)
+        if throttled_until is not None:
+            cooldowns[account] = throttled_until
+        try:
+            await coordinator.api.disconnect()
+        except BaseException:
+            _LOGGER.exception("Failed to clean up AMC API after setup failure")
+        finally:
+            entry.runtime_data = None
+        raise
 
     # Set up all platforms for this device/entry.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

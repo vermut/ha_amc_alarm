@@ -124,6 +124,7 @@ class SimplifiedAmcApi:
         self._failed_attempts_last_msg = None
         self._retry_delay = 0
         self._retry_from_date = None
+        self._login_throttled_until = None
 
         # default asyncio puro
         self._create_task = asyncio.create_task
@@ -330,6 +331,9 @@ class SimplifiedAmcApi:
             _LOGGER.exception("%s: %s", msg, error)
         self._failed_attempts += 1
         self._retry_delay = max(self.get_retry_delay(), min_delay)
+        if isinstance(error, LoginThrottled):
+            # Keep a monotonic deadline for setup retries using a fresh API.
+            self._login_throttled_until = self._event_loop.time() + self._retry_delay
         self._retry_from_date = datetime.now() + timedelta(seconds=self._retry_delay)
         _LOGGER.debug("%s, retrying in %ss: %s", msg, self._retry_delay, error)
         await self._change_state(ConnectionState.DISCONNECTED, err_msg)
@@ -496,7 +500,7 @@ class SimplifiedAmcApi:
                     # The cloud is rate limiting us, the credentials are fine. Go
                     # through the usual backoff instead of stopping: stopping asks
                     # the user to re-authenticate with credentials that still work.
-                    error = ConnectionFailed(data.status or message.data)
+                    error = LoginThrottled(data.status or message.data)
                     status.set_ko(error)
                     await self._manage_running_error(
                         "Login throttled by the server",
