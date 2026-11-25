@@ -65,7 +65,12 @@ class CommandMessageInfo():
 class SimplifiedAmcApi:
     MAX_RETRY_DELAY = 600  # 10 min
     DEVICE_OFFLINE_DELAY = 5 # set as offline only after 5 seconds, many time request to relogin
-    LOGIN_THROTTLED_RETRY_DELAY = 60 # the server is rate limiting us, reconnecting at once makes it worse
+    # Deliberately long. On the panel this was found on, the throttling outlived
+    # 94 minutes of complete silence from the client, so a short floor only keeps
+    # feeding it. The generic backoff cannot carry this on its own either, because
+    # _failed_attempts resets to 0 whenever the error message changes and a
+    # struggling cloud alternates 502, 503 and timeouts.
+    LOGIN_THROTTLED_RETRY_DELAY = 600  # 10 min
 
     def __init__(
         self,
