@@ -50,11 +50,7 @@ class AmcBaseEntity(CoordinatorEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        # Keep the previous entry if the lookup comes back empty: an entry missing
-        # from one update must not turn every attribute access into an AttributeError.
-        amc_entry = self._amc_entry_fn()
-        if amc_entry is not None:
-            self._amc_entry = amc_entry
+        self._amc_entry = self._amc_entry_fn()
 
         super()._handle_coordinator_update()
 

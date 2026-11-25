@@ -879,37 +879,33 @@ class AmcStatesParser:
     def groups(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.GROUPS)
 
-    def group(self, central_id: str, entry_id: int) -> AmcEntry | None:
-        return next((x for x in self.groups(central_id).list if x.Id == entry_id), None)
+    def group(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.groups(central_id).list if x.Id == entry_id)
 
     def areas(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.AREAS)
 
-    def area(self, central_id: str, entry_id: int) -> AmcEntry | None:
-        return next((x for x in self.areas(central_id).list if x.Id == entry_id), None)
+    def area(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.areas(central_id).list if x.Id == entry_id)
 
     def zones(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.ZONES)
 
-    def zone(self, central_id: str, entry_id: int) -> AmcEntry | None:
-        return next((x for x in self.zones(central_id).list if x.Id == entry_id), None)
+    def zone(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.zones(central_id).list if x.Id == entry_id)
 
     def outputs(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.OUTPUTS)
 
-    def output(self, central_id: str, entry_id: int) -> AmcEntry | None:
-        return next((x for x in self.outputs(central_id).list if x.Id == entry_id), None)
+    def output(self, central_id: str, entry_id: int) -> AmcEntry:
+        return next(x for x in self.outputs(central_id).list if x.Id == entry_id)
 
     def system_statuses(self, central_id: str) -> AmcData:
         return self._get_section(central_id, CentralDataSections.SYSTEM_STATUS)
 
-    def system_status(self, central_id: str, entry_index: int) -> AmcEntry | None:
-        # Not every panel reports every section: one without a GSM module sends no
-        # signal entry. Return None instead of letting StopIteration escape, which
-        # inside a coroutine becomes a RuntimeError and kills the whole platform.
+    def system_status(self, central_id: str, entry_index: int) -> AmcEntry:
         return next(
-            (x for x in self.system_statuses(central_id).list if x.index == entry_index),
-            None,
+            x for x in self.system_statuses(central_id).list if x.index == entry_index
         )
 
     def notifications(self, central_id: str) -> list[AmcNotificationEntry]:

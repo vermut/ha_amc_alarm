@@ -38,10 +38,11 @@ async def async_setup_entry(
         return lambda: coordinator.data_parsed.system_status(_central_id, index)
 
     for central_id in coordinator.central_ids():
-        # Only create the entities the central actually reports: a panel without a
-        # GSM module has no signal entry, and system_status() returns None for it.
-        signal_fn = _system_status(central_id, SystemStatusDataSections.GSM_SIGNAL)
-        if signal_fn() is not None:
+        # Create optional system-status entities only when the panel reports them.
+        status_entries = states.system_statuses(central_id).list
+        status_indices = {entry.index for entry in status_entries}
+        if SystemStatusDataSections.GSM_SIGNAL in status_indices:
+            signal_fn = _system_status(central_id, SystemStatusDataSections.GSM_SIGNAL)
             sensors.append(
                 AmcSignalSensor(
                     coordinator=coordinator,
@@ -50,8 +51,8 @@ async def async_setup_entry(
                     id_prefix="system_status_",
                 )
             )
-        battery_fn = _system_status(central_id, SystemStatusDataSections.BATTERY_STATUS)
-        if battery_fn() is not None:
+        if SystemStatusDataSections.BATTERY_STATUS in status_indices:
+            battery_fn = _system_status(central_id, SystemStatusDataSections.BATTERY_STATUS)
             sensors.append(
                 AmcBatterySensor(
                     coordinator=coordinator,
