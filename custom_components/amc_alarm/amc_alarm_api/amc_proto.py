@@ -121,7 +121,7 @@ class AmcCentralResponse(BaseModel):
 
 class AmcUser(BaseModel):
     email: str
-    password: str
+    password: Optional[str] = None
     regUrl: Optional[str] = None
     surname: Optional[str] = None
     name: Optional[str] = None
