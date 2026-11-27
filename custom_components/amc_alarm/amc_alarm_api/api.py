@@ -71,6 +71,7 @@ class SimplifiedAmcApi:
     # _failed_attempts resets to 0 whenever the error message changes and a
     # struggling cloud alternates 502, 503 and timeouts.
     LOGIN_THROTTLED_RETRY_DELAY = 600  # 10 min
+    CENTRAL_LOGIN_RETRY_DELAY = 600  # 10 min; protect the central/cloud from repeated credential retries
 
     def __init__(
         self,
@@ -336,7 +337,12 @@ class SimplifiedAmcApi:
             self._login_throttled_until = self._event_loop.time() + self._retry_delay
         self._retry_from_date = datetime.now() + timedelta(seconds=self._retry_delay)
         _LOGGER.debug("%s, retrying in %ss: %s", msg, self._retry_delay, error)
-        await self._change_state(ConnectionState.DISCONNECTED, err_msg)
+        try:
+            await self._change_state(ConnectionState.DISCONNECTED, err_msg)
+        except Exception:
+            # State callbacks (for example, coordinator updates) must not skip
+            # the minimum retry floor for server-side credential rejection.
+            _LOGGER.exception("Error notifying state change while handling %s", msg)
         await asyncio.sleep(self._retry_delay)
         self._retry_from_date = None
 
@@ -585,10 +591,30 @@ class SimplifiedAmcApi:
                         self._raw_states[self._central_id].status = status_new
                     # {"command":"getStates","status":"ok","layout":null,"centrals":{"XXX":{"amcProtoVer":2,"realName":"X864V","statusID":0,"status":"wrong login X864V/4.10"}}}
                     if status_new and status_new.startswith("wrong login"):                        
-                        _LOGGER.warning("Central Authorization failure: %s, data=%s" % (data.status, message.data))
-                        self._ws_state_stop_exeception = AuthenticationFailed(f"Central Authorization failure: {status_new}")
-                        await self._change_state(ConnectionState.STOPPED, f"Central Authorization failure: {status_new}")
-                        status.set_ko(self._ws_state_stop_exeception)
+                        if not self._raw_states_central_valid:
+                            # On first contact, the credentials cannot be distinguished
+                            # from a genuinely invalid central configuration.
+                            _LOGGER.warning("Central authorization failed before a valid central response")
+                            self._ws_state_stop_exeception = AuthenticationFailed(
+                                "Central authorization failed"
+                            )
+                            await self._change_state(
+                                ConnectionState.STOPPED, "Central authorization failure"
+                            )
+                            status.set_ko(self._ws_state_stop_exeception)
+                        else:
+                            # A central that worked before can reject credentials
+                            # transiently. Reconnect without raising HA re-auth, and
+                            # apply a fixed floor even if the response text changes.
+                            error = AmcCentralStatusErrorException(
+                                "Central rejected login credentials"
+                            )
+                            status.set_ko(error)
+                            await self._manage_running_error(
+                                "Central rejected login credentials",
+                                error,
+                                min_delay=self.CENTRAL_LOGIN_RETRY_DELAY,
+                            )
                     else:
                         await self._change_state(ConnectionState.CENTRAL_KO, f"Central {status_new}")
                         status.set_ko(AmcCentralStatusErrorException("Central " + status_new) if status_new else AmcException(message.data))
