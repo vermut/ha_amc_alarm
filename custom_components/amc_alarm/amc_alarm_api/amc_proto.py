@@ -15,6 +15,7 @@ class AmcCommands(StrEnum):
     STATUS_LOGGED_IN = "Logged"
     STATUS_LOGIN_NOT_FOUND = "User not found"
     STATUS_TOO_MANY_REQUESTS = "too many requests"
+    STATUS_SERVER_ERROR = "server error"
     STATUS_NOT_AVAILABLE = "not available"
     MESSAGE_PLEASE_LOGIN = "not logged, please login"
 

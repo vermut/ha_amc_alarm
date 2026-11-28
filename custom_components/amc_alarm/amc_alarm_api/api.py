@@ -71,6 +71,7 @@ class SimplifiedAmcApi:
     # _failed_attempts resets to 0 whenever the error message changes and a
     # struggling cloud alternates 502, 503 and timeouts.
     LOGIN_THROTTLED_RETRY_DELAY = 600  # 10 min
+    LOGIN_SERVER_ERROR_RETRY_DELAY = 600  # 10 min
     CENTRAL_LOGIN_RETRY_DELAY = 600  # 10 min; protect the central/cloud from repeated credential retries
 
     def __init__(
@@ -125,7 +126,7 @@ class SimplifiedAmcApi:
         self._failed_attempts_last_msg = None
         self._retry_delay = 0
         self._retry_from_date = None
-        self._login_throttled_until = None
+        self._login_retry_until = None
 
         # default asyncio puro
         self._create_task = asyncio.create_task
@@ -332,9 +333,12 @@ class SimplifiedAmcApi:
             _LOGGER.exception("%s: %s", msg, error)
         self._failed_attempts += 1
         self._retry_delay = max(self.get_retry_delay(), min_delay)
-        if isinstance(error, LoginThrottled):
-            # Keep a monotonic deadline for setup retries using a fresh API.
-            self._login_throttled_until = self._event_loop.time() + self._retry_delay
+        if isinstance(error, (LoginThrottled, LoginServerError)):
+            # Keep the longest monotonic deadline for fresh-API setup retries.
+            retry_until = self._event_loop.time() + self._retry_delay
+            self._login_retry_until = max(
+                self._login_retry_until or 0, retry_until
+            )
         self._retry_from_date = datetime.now() + timedelta(seconds=self._retry_delay)
         _LOGGER.debug("%s, retrying in %ss: %s", msg, self._retry_delay, error)
         try:
@@ -512,6 +516,14 @@ class SimplifiedAmcApi:
                         "Login throttled by the server",
                         error,
                         min_delay=self.LOGIN_THROTTLED_RETRY_DELAY,
+                    )
+                elif data.status == AmcCommands.STATUS_SERVER_ERROR:
+                    error = LoginServerError(data.status)
+                    status.set_ko(error)
+                    await self._manage_running_error(
+                        "Login server error",
+                        error,
+                        min_delay=self.LOGIN_SERVER_ERROR_RETRY_DELAY,
                     )
                 else:
                     _LOGGER.warning("Authorization failure: %s, data=%s" % (data.status, message.data))

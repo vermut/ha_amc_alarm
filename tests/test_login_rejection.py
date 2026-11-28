@@ -59,7 +59,7 @@ class LoginRejectionTests(unittest.IsolatedAsyncioTestCase):
             self.api._get_message_info("loginUser").error, LoginThrottled
         )
         self.assertAlmostEqual(
-            self.api._login_throttled_until,
+            self.api._login_retry_until,
             self.api._event_loop.time() + self.api._retry_delay,
             places=2,
         )
@@ -81,9 +81,9 @@ class LoginRejectionTests(unittest.IsolatedAsyncioTestCase):
             login = self.api._get_message_info("loginUser")
             self.assertEqual(login.state.name, "KO")
             self.assertIsInstance(login.error, LoginThrottled)
-            self.assertIsNotNone(self.api._login_throttled_until)
+            self.assertIsNotNone(self.api._login_retry_until)
             self.assertAlmostEqual(
-                self.api._login_throttled_until,
+                self.api._login_retry_until,
                 self.api._event_loop.time() + self.api._retry_delay,
                 places=1,
             )
