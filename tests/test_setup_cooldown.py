@@ -13,6 +13,9 @@ from unittest import mock
 # tests exercise only setup orchestration, not Home Assistant itself.
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "custom_components" / "amc_alarm"
+if str(PACKAGE) not in sys.path:
+    sys.path.insert(0, str(PACKAGE))
+from amc_alarm_api.exceptions import LoginServerError
 
 
 def _stub_module(name):
@@ -79,7 +82,7 @@ with mock.patch.dict(sys.modules, _stubbed_modules):
 
 class FakeApi:
     def __init__(self, deadline=None):
-        self._login_throttled_until = deadline
+        self._login_retry_until = deadline
         self.disconnected = False
         self.disconnect_error = None
 
@@ -120,7 +123,7 @@ class SetupCooldownTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_throttle_cleans_up_and_blocks_setup_until_deadline(self):
         async def throttled(coordinator):
-            coordinator.api._login_throttled_until = 700.0
+            coordinator.api._login_retry_until = 700.0
             raise ConfigEntryNotReady("login throttled")
 
         FakeCoordinator.refresh = throttled
@@ -140,6 +143,45 @@ class SetupCooldownTests(unittest.IsolatedAsyncioTestCase):
         FakeCoordinator.refresh = success
         with self.assertRaises(ConfigEntryNotReady):
             await integration.async_setup_entry(self.hass, self.entry)
+        self.assertEqual(len(FakeCoordinator.instances), 1)
+
+        self.now = 700.0
+        self.hass.config_entries = types.SimpleNamespace(
+            async_forward_entry_setups=lambda *args: asyncio.sleep(0),
+        )
+        self.entry.async_on_unload = lambda callback: None
+        self.entry.add_update_listener = lambda callback: None
+        self.assertTrue(await integration.async_setup_entry(self.hass, self.entry))
+        self.assertEqual(len(FakeCoordinator.instances), 2)
+
+    async def test_server_error_setup_failure_preserves_account_cooldown(self):
+        async def server_error(coordinator):
+            # The API classifies this transient login response and exposes its
+            # deadline before the coordinator reports setup as not ready.
+            coordinator.api.login_error = LoginServerError("server error")
+            coordinator.api._login_retry_until = 700.0
+            raise ConfigEntryNotReady("AMC login is temporarily unavailable")
+
+        FakeCoordinator.refresh = server_error
+        with self.assertRaises(ConfigEntryNotReady):
+            await integration.async_setup_entry(self.hass, self.entry)
+
+        api = FakeCoordinator.instances[0].api
+        self.assertIsInstance(api.login_error, LoginServerError)
+        self.assertTrue(api.disconnected)
+        self.assertIsNone(self.entry.runtime_data)
+        self.assertEqual(
+            self.hass.data["amc_alarm"]["_login_cooldowns"]["user@example.com"],
+            700.0,
+        )
+
+        async def success(_coordinator):
+            return None
+
+        FakeCoordinator.refresh = success
+        with self.assertRaises(ConfigEntryNotReady):
+            await integration.async_setup_entry(self.hass, self.entry)
+        # The account deadline is checked before allocating another client.
         self.assertEqual(len(FakeCoordinator.instances), 1)
 
         self.now = 700.0
@@ -181,9 +223,10 @@ class SetupCooldownTests(unittest.IsolatedAsyncioTestCase):
             self.hass.data["amc_alarm"]["_login_cooldowns"], {}
         )
 
-    async def test_unload_preserves_active_throttle_for_account_only(self):
+    async def test_unload_preserves_server_error_cooldown_for_account_only(self):
         async def success(coordinator):
-            coordinator.api._login_throttled_until = 600.0
+            coordinator.api.login_error = LoginServerError("server error")
+            coordinator.api._login_retry_until = 600.0
 
         FakeCoordinator.refresh = success
         self.hass.config_entries = types.SimpleNamespace(
@@ -193,6 +236,9 @@ class SetupCooldownTests(unittest.IsolatedAsyncioTestCase):
         self.entry.async_on_unload = lambda callback: None
         self.entry.add_update_listener = lambda callback: None
         self.assertTrue(await integration.async_setup_entry(self.hass, self.entry))
+        self.assertIsInstance(
+            FakeCoordinator.instances[0].api.login_error, LoginServerError
+        )
 
         self.now = 150.0
         self.assertTrue(await integration.async_unload_entry(self.hass, self.entry))
@@ -224,7 +270,7 @@ class SetupCooldownTests(unittest.IsolatedAsyncioTestCase):
             index = FakeCoordinator.instances.index(coordinator)
             await started.put(index)
             await release[index].wait()
-            coordinator.api._login_throttled_until = 900.0 if index == 0 else 700.0
+            coordinator.api._login_retry_until = 900.0 if index == 0 else 700.0
             raise ConfigEntryNotReady("login throttled")
 
         FakeCoordinator.refresh = throttle

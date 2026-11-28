@@ -18,8 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _preserve_login_cooldown(hass: HomeAssistant, account: str, api) -> None:
-    """Retain the latest active throttle deadline for an account."""
-    api_deadline = getattr(api, "_login_throttled_until", None)
+    """Retain the latest active login retry deadline for an account."""
+    api_deadline = getattr(api, "_login_retry_until", None)
     if api_deadline is None:
         return
 
@@ -56,7 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Error async_setup_entry config entry from version %s", entry.version)
         return False
 
-    # Setup retries create a fresh API object, so retain login throttling at the
+    # Setup retries create a fresh API object, so retain login cooldowns at the
     # account level rather than on that short-lived object.
     account = (entry.data or {}).get(CONF_EMAIL)
     loop = getattr(hass, "loop", asyncio.get_running_loop())
@@ -66,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         remaining = retry_at - loop.time()
         if remaining > 0:
             raise ConfigEntryNotReady(
-                f"AMC login is rate limited; retry in {remaining:.0f} seconds"
+                f"AMC login is temporarily unavailable; retry in {remaining:.0f} seconds"
             )
         cooldowns.pop(account, None)
 
